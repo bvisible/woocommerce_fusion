@@ -1,5 +1,5 @@
 import json
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 import frappe
 from erpnext import get_default_company
@@ -269,6 +269,108 @@ class TestWooCommerceSync(FrappeTestCase):
 		self.assertEqual(mock_sales_order.woocommerce_payment_entry, "PE-000001")
 		mock_frappe_new_doc.assert_called_once_with("Payment Entry")
 		self.assertEqual(mock_row.reference_name, "INVOICE-12345")
+
+	@patch.object(SynchroniseSalesOrder, "create_address")
+	@patch.object(SynchroniseSalesOrder, "update_address")
+	@patch("woocommerce_fusion.tasks.sync_sales_orders.frappe.new_doc")
+	def test_create_single_address_created_when_same(
+		self, mock_frappe_new_doc, mock_update_address, mock_create_address, mock_get_wc_servers
+	):
+		# Initialise class
+		sync = SynchroniseSalesOrder()
+		sync.customer = frappe._dict({"name": "Test Customer"})
+
+		# Arrange
+		address = {
+			"first_name": "Samwise",
+			"last_name": "Gangee",
+			"company": "",
+			"address_1": "Ring Lane",
+			"city": "Shire",
+			"state": "ME",
+			"postcode": "12121",
+			"country": "DE",
+			"email": "samwise@me.net",
+			"phone": "0123323216",
+		}
+
+		wc_order = frappe._dict(
+			{
+				"payment_method": "PayPal",
+				"date_paid": "2023-01-01",
+				"name": "wc_order_1",
+				"payment_method_title": "PayPal",
+				"total": 100,
+				"billing": json.dumps(address),
+				"shipping": json.dumps(address),
+			}
+		)
+
+		mock_get_wc_servers.return_value = frappe._dict(
+			woocommerce_server_url="http://example.com",
+		)
+
+		# Act
+		sync.create_or_update_address(wc_order)
+
+		# Assert that a single address is created
+		# mock_update_address.assert_called_once_with("Payment Entry")
+		mock_create_address.assert_called_once_with(
+			address, sync.customer, "Billing", is_primary_address=1, is_shipping_address=1
+		)
+
+	@patch.object(SynchroniseSalesOrder, "create_address")
+	@patch.object(SynchroniseSalesOrder, "update_address")
+	@patch("woocommerce_fusion.tasks.sync_sales_orders.frappe.new_doc")
+	def test_create_multiple_addresses_created_when_different(
+		self, mock_frappe_new_doc, mock_update_address, mock_create_address, mock_get_wc_servers
+	):
+		# Initialise class
+		sync = SynchroniseSalesOrder()
+		sync.customer = frappe._dict({"name": "Test Customer"})
+
+		# Arrange
+		address_billing = {
+			"first_name": "Samwise",
+			"last_name": "Gangee",
+			"company": "",
+			"address_1": "Ring Lane",
+			"city": "Shire",
+			"state": "ME",
+			"postcode": "12121",
+			"country": "DE",
+			"email": "samwise@me.net",
+			"phone": "0123323216",
+		}
+		address_shipping = address_billing.copy()
+		address_shipping["postcode"] = "42069"
+
+		wc_order = frappe._dict(
+			{
+				"payment_method": "PayPal",
+				"date_paid": "2023-01-01",
+				"name": "wc_order_1",
+				"payment_method_title": "PayPal",
+				"total": 100,
+				"billing": json.dumps(address_billing),
+				"shipping": json.dumps(address_shipping),
+			}
+		)
+
+		mock_get_wc_servers.return_value = frappe._dict(
+			woocommerce_server_url="http://example.com",
+		)
+
+		# Act
+		sync.create_or_update_address(wc_order)
+
+		# Assert that a single address is created
+		expected_calls = [
+			call(address_billing, sync.customer, "Billing", is_primary_address=1, is_shipping_address=0),
+			call(address_shipping, sync.customer, "Shipping", is_primary_address=0, is_shipping_address=1),
+		]
+
+		mock_create_address.assert_has_calls(expected_calls)
 
 
 def create_bank_account(

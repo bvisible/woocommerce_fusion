@@ -410,24 +410,7 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 		"""
 		Create an ERPNext Sales Order from the given WooCommerce Order
 		"""
-		raw_billing_data = json.loads(wc_order.billing)
-		raw_shipping_data = json.loads(wc_order.shipping)
-		first_name = raw_billing_data.get("first_name", "").strip()
-		last_name = raw_billing_data.get("last_name", "").strip()
-		email = raw_billing_data.get("email", "").strip()
-		# company
-		company_name = raw_billing_data.get("company", "").strip()
-		individual_name = f"{first_name} {last_name}".strip() or email
-
-		# Determine if the order is from a guest user
-		is_guest = wc_order.customer_id is None or wc_order.customer_id == 0
-
-		# Use the WooCommerce order ID as the identifier for guest orders
-		order_id = wc_order.id
-
-		customer_docname = self.create_or_link_customer_and_address(
-			raw_billing_data, raw_shipping_data, individual_name, company_name, is_guest, order_id
-		)
+		customer_docname = self.create_or_link_customer_and_address(wc_order)
 		self.create_missing_items(wc_order, json.loads(wc_order.line_items), wc_order.woocommerce_server)
 
 		new_sales_order = frappe.new_doc("Sales Order")
@@ -456,18 +439,24 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 		self.create_and_link_payment_entry(wc_order, new_sales_order)
 		new_sales_order.save()
 
-	@staticmethod
-	def create_or_link_customer_and_address(
-		raw_billing_data: Dict,
-		raw_shipping_data: Dict,
-		individual_name: str,
-		company_name: str,
-		is_guest: bool,
-		order_id: str,
-	) -> None:
+	def create_or_link_customer_and_address(self, wc_order: WooCommerceOrder) -> str:
 		"""
 		Create or update Customer and Address records, with special handling for guest orders using order ID.
 		"""
+		raw_billing_data = json.loads(wc_order.billing)
+		raw_shipping_data = json.loads(wc_order.shipping)
+		first_name = raw_billing_data.get("first_name", "").strip()
+		last_name = raw_billing_data.get("last_name", "").strip()
+		email = raw_billing_data.get("email", "").strip()
+		company_name = raw_billing_data.get("company", "").strip()
+		individual_name = f"{first_name} {last_name}".strip() or email
+
+		# Determine if the order is from a guest user
+		is_guest = wc_order.customer_id is None or wc_order.customer_id == 0
+
+		# Use the WooCommerce order ID as the identifier for guest orders
+		order_id = wc_order.id
+
 		customer_woo_com_email = raw_billing_data.get("email")
 		if not customer_woo_com_email and not is_guest:
 			# Log raw_billing_data
@@ -477,11 +466,13 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 			)
 			return None
 
-		# Use order ID for guest users, otherwise use email and name for uniqueness
+		# Use order ID for guest users, otherwise use email
 		if is_guest:
 			customer_identifier = f"Guest-{order_id}"
+		elif company_name:
+			customer_identifier = f"{customer_woo_com_email}-{company_name}"
 		else:
-			customer_identifier = f"{customer_woo_com_email}-{individual_name or company_name}"
+			customer_identifier = customer_woo_com_email
 
 		# Check if customer exists using the identifier
 		customer_exists = frappe.get_value("Customer", {"woocommerce_identifier": customer_identifier})
@@ -489,17 +480,14 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 		if not customer_exists:
 			# Create Customer
 			customer = frappe.new_doc("Customer")
-			customer_docname = customer_identifier[:3].upper() + f"{order_id}"
-			customer.name = customer_docname
+			customer.woocommerce_identifier = customer_identifier
 			customer.customer_type = "Company" if company_name else "Individual"
 			customer.woocommerce_is_guest = is_guest
 		else:
 			# Edit Customer
 			customer = frappe.get_doc("Customer", {"woocommerce_identifier": customer_identifier})
-			old_name = customer.customer_name
 
 		customer.customer_name = company_name if company_name else individual_name
-		customer.woocommerce_email = customer_woo_com_email
 		customer.woocommerce_identifier = customer_identifier
 
 		# Check if vat_id exists in raw_billing_data and is a valid string
@@ -512,30 +500,13 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 
 		try:
 			customer.save()
+			self.customer = customer
 		except Exception:
 			error_message = f"{frappe.get_traceback()}\n\nCustomer Data{str(customer.as_dict())}"
 			frappe.log_error("WooCommerce Error", error_message)
 
-		if customer_exists:
-			for address_type in (
-				"Billing",
-				"Shipping",
-			):
-				try:
-					address = frappe.get_doc(
-						"Address", {"woocommerce_identifier": customer_identifier, "address_type": address_type}
-					)
-					rename_address(address, customer)
-				except (
-					frappe.DoesNotExistError,
-					frappe.DuplicateEntryError,
-					frappe.ValidationError,
-				):
-					pass
-		else:
-			create_address(raw_billing_data, customer, "Billing")
-			create_address(raw_shipping_data, customer, "Shipping")
-			create_contact(raw_billing_data, customer)
+		self.create_or_update_address(wc_order)
+		create_contact(raw_billing_data, self.customer)
 
 		return customer.name
 
@@ -626,6 +597,107 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 			new_sales_order.base_rounded_total = float(wc_order.total)
 			new_sales_order.rounded_total = float(wc_order.total)
 
+	def create_or_update_address(self, wc_order: WooCommerceOrder):
+		"""
+		If the address(es) exist, update it, else create it
+		"""
+		addresses = get_addresses_linking_to(
+			"Customer", self.customer.name, fields=["name", "is_primary_address", "is_shipping_address"]
+		)
+
+		existing_billing_address = next(
+			(addr for addr in addresses if addr.is_primary_address == 1), None
+		)
+		existing_shipping_address = next(
+			(addr for addr in addresses if addr.is_shipping_address == 1), None
+		)
+
+		raw_billing_data = json.loads(wc_order.billing)
+		raw_shipping_data = json.loads(wc_order.shipping)
+
+		if raw_billing_data == raw_shipping_data:
+			# Use one address for both billing and shipping
+			address = existing_billing_address or existing_shipping_address
+			if address:
+				self.update_address(address, raw_billing_data, is_primary_address=1, is_shipping_address=1)
+			else:
+				self.create_address(
+					raw_billing_data, self.customer, "Billing", is_primary_address=1, is_shipping_address=1
+				)
+		else:
+			# Handle billing address
+			if existing_billing_address:
+				self.update_address(
+					existing_billing_address, raw_billing_data, is_primary_address=1, is_shipping_address=0
+				)
+			else:
+				self.create_address(
+					raw_billing_data, self.customer, "Billing", is_primary_address=1, is_shipping_address=0
+				)
+
+			# Handle shipping address
+			if existing_shipping_address:
+				self.update_address(
+					existing_shipping_address, raw_shipping_data, is_primary_address=0, is_shipping_address=1
+				)
+			else:
+				self.create_address(
+					raw_shipping_data, self.customer, "Shipping", is_primary_address=0, is_shipping_address=1
+				)
+
+	def create_address(
+		self, raw_data: Dict, customer, address_type, is_primary_address=0, is_shipping_address=0
+	):
+		title_convention = frappe.db.get_value(
+			"WooCommerce Server", self.woocommerce_order.woocommerce_server, "address_title_convention"
+		)
+		address = frappe.new_doc("Address")
+
+		address.address_type = address_type
+		address.address_line1 = raw_data.get("address_1", "Not Provided")
+		address.address_line2 = raw_data.get("address_2", "Not Provided")
+		address.city = raw_data.get("city", "Not Provided")
+		address.country = frappe.get_value("Country", {"code": raw_data.get("country", "IN").lower()})
+		address.state = raw_data.get("state")
+		address.pincode = raw_data.get("postcode")
+		address.phone = raw_data.get("phone")
+		address.address_title = (
+			{customer.customer_name}
+			if title_convention == "Customer Name only"
+			else f"{customer.name}-{address.address_type}"
+		)
+		address.is_primary_address = is_primary_address
+		address.is_shipping_address = is_shipping_address
+		address.append("links", {"link_doctype": "Customer", "link_name": customer.name})
+
+		address.flags.ignore_mandatory = True
+		address.save()
+
+	def update_address(
+		self, address, raw_data: Dict, customer, is_primary_address=0, is_shipping_address=0
+	):
+		title_convention = frappe.db.get_value(
+			"WooCommerce Server", self.woocommerce_order.woocommerce_server, "address_title_convention"
+		)
+
+		address.address_line1 = raw_data.get("address_1", "Not Provided")
+		address.address_line2 = raw_data.get("address_2", "Not Provided")
+		address.city = raw_data.get("city", "Not Provided")
+		address.country = frappe.get_value("Country", {"code": raw_data.get("country", "IN").lower()})
+		address.state = raw_data.get("state")
+		address.pincode = raw_data.get("postcode")
+		address.phone = raw_data.get("phone")
+		address.address_title = (
+			{customer.customer_name}
+			if title_convention == "Customer Name only"
+			else f"{customer.name}-{address.address_type}"
+		)
+		address.is_primary_address = is_primary_address
+		address.is_shipping_address = is_shipping_address
+
+		address.flags.ignore_mandatory = True
+		address.save()
+
 
 def get_list_of_wc_orders(
 	date_time_from: Optional[datetime] = None,
@@ -681,27 +753,6 @@ def rename_address(address, customer):
 	address.save()
 
 	frappe.rename_doc("Address", old_address_title, new_address_title)
-
-
-def create_address(raw_data, customer, address_type):
-	address = frappe.new_doc("Address")
-
-	address.address_line1 = raw_data.get("address_1", "Not Provided")
-	address.address_line2 = raw_data.get("address_2", "Not Provided")
-	address.city = raw_data.get("city", "Not Provided")
-	address.woocommerce_email = customer.woocommerce_email
-	address.woocommerce_identifier = customer.woocommerce_identifier
-	address.address_type = address_type
-	address.country = frappe.get_value("Country", {"code": raw_data.get("country", "IN").lower()})
-	address.state = raw_data.get("state")
-	address.pincode = raw_data.get("postcode")
-	address.phone = raw_data.get("phone")
-	address.email_id = customer.woocommerce_email
-	address.address_title = f"{customer.name}-{address_type}"
-	address.append("links", {"link_doctype": "Customer", "link_name": customer.name})
-
-	address.flags.ignore_mandatory = True
-	address.save()
 
 
 def create_contact(data, customer):
@@ -771,3 +822,15 @@ def create_placeholder_item(sales_order: SalesOrder):
 	else:
 		item = frappe.get_doc("Item", "DELETED_WOOCOMMERCE_PRODUCT")
 	return item
+
+
+def get_addresses_linking_to(doctype, docname, fields=None):
+	"""Return a list of Addresses containing a link to the given document."""
+	return frappe.get_all(
+		"Address",
+		fields=fields,
+		filters=[
+			["Dynamic Link", "link_doctype", "=", doctype],
+			["Dynamic Link", "link_name", "=", docname],
+		],
+	)
