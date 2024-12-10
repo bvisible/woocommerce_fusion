@@ -475,9 +475,12 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 			customer_identifier = customer_woo_com_email
 
 		# Check if customer exists using the identifier
-		customer_exists = frappe.get_value("Customer", {"woocommerce_identifier": customer_identifier})
 
-		if not customer_exists:
+		existing_customer = frappe.get_value(
+			"Customer", {"woocommerce_identifier": customer_identifier}, "name"
+		)
+
+		if not existing_customer:
 			# Create Customer
 			customer = frappe.new_doc("Customer")
 			customer.woocommerce_identifier = customer_identifier
@@ -485,7 +488,7 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 			customer.woocommerce_is_guest = is_guest
 		else:
 			# Edit Customer
-			customer = frappe.get_doc("Customer", {"woocommerce_identifier": customer_identifier})
+			customer = frappe.get_doc("Customer", existing_customer)
 
 		customer.customer_name = company_name if company_name else individual_name
 		customer.woocommerce_identifier = customer_identifier
@@ -615,11 +618,29 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 		raw_billing_data = json.loads(wc_order.billing)
 		raw_shipping_data = json.loads(wc_order.shipping)
 
-		if raw_billing_data == raw_shipping_data:
+		address_keys_to_compare = [
+			"first_name",
+			"last_name",
+			"company",
+			"address_1",
+			"address_2",
+			"city",
+			"state",
+			"postcode",
+			"country",
+		]
+		address_keys_same = [
+			True if raw_billing_data[key] == raw_shipping_data[key] else False
+			for key in address_keys_to_compare
+		]
+
+		if all(address_keys_same):
 			# Use one address for both billing and shipping
 			address = existing_billing_address or existing_shipping_address
 			if address:
-				self.update_address(address, raw_billing_data, is_primary_address=1, is_shipping_address=1)
+				self.update_address(
+					address.name, raw_billing_data, self.customer, is_primary_address=1, is_shipping_address=1
+				)
 			else:
 				self.create_address(
 					raw_billing_data, self.customer, "Billing", is_primary_address=1, is_shipping_address=1
@@ -628,7 +649,11 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 			# Handle billing address
 			if existing_billing_address:
 				self.update_address(
-					existing_billing_address, raw_billing_data, is_primary_address=1, is_shipping_address=0
+					existing_billing_address.name,
+					raw_billing_data,
+					self.customer,
+					is_primary_address=1,
+					is_shipping_address=0,
 				)
 			else:
 				self.create_address(
@@ -638,7 +663,11 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 			# Handle shipping address
 			if existing_shipping_address:
 				self.update_address(
-					existing_shipping_address, raw_shipping_data, is_primary_address=0, is_shipping_address=1
+					existing_shipping_address.name,
+					raw_shipping_data,
+					self.customer,
+					is_primary_address=0,
+					is_shipping_address=1,
 				)
 			else:
 				self.create_address(
@@ -674,11 +703,12 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 		address.save()
 
 	def update_address(
-		self, address, raw_data: Dict, customer, is_primary_address=0, is_shipping_address=0
+		self, address_name, raw_data: Dict, customer, is_primary_address=0, is_shipping_address=0
 	):
 		title_convention = frappe.db.get_value(
 			"WooCommerce Server", self.woocommerce_order.woocommerce_server, "address_title_convention"
 		)
+		address = frappe.get_doc("Address", address_name)
 
 		address.address_line1 = raw_data.get("address_1", "Not Provided")
 		address.address_line2 = raw_data.get("address_2", "Not Provided")
