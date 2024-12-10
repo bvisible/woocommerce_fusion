@@ -34,17 +34,30 @@ When comparing a **WooCommerce Order** with it's counterpart ERPNext **Sales Ord
 
 ## Fields Mapping
 
-| WooCommerce | ERPNext                                       | Note                                                                                                                             |
-| ----------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| billing     | **Address** with type *Billing*               | Checks if the `email` field matches an existing **Customer's** `woocommerce_email` field. If not, a new **Customer** is created. |
-|             | **Contact**                                   |                                                                                                                                  |
-| shipping    | **Adress** with type *Shipping*               |                                                                                                                                  |
-| line_items  | **Item**                                      | Checks if a linked **Item** exists, else a new Item is created                                                                   |
-| id          | **Sales Order** > *Customer's Purchase Order* |                                                                                                                                  |
-|             | **Sales Order** > *Woocommerce ID*            |                                                                                                                                  |
-| currency    | **Sales Order** > *Currency*                  |                                                                                                                                  |
+| WooCommerce | ERPNext                                       | Note                                                                                                                                                                                  |
+| ----------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| billing     | **Address** with type *Billing*               | See **Customer Synchronisation** below. Checks if the `billing.email` field matches an existing **Customer's** `woocommerce_identifier` field. If not, a new **Customer** is created. |
+|             | **Contact**                                   |                                                                                                                                                                                       |
+| shipping    | **Adress** with type *Shipping*               | See **Address  Synchronsation** below                                                                                                                                                 |
+| line_items  | **Item**                                      | Checks if a linked **Item** exists, else a new Item is created                                                                                                                        |
+| id          | **Sales Order** > *Customer's Purchase Order* |                                                                                                                                                                                       |
+|             | **Sales Order** > *Woocommerce ID*            |                                                                                                                                                                                       |
+| currency    | **Sales Order** > *Currency*                  |                                                                                                                                                                                       |
 
 
+**Customer Synchronisation**
+
+Each **Customer** record has a `woocommerce_identifier` custom field. This identifier is set depending on if the **WooCommerce Order** is from a guest or not:
+
+| Case                                                               | `woocommerce_identifier`    |
+| ------------------------------------------------------------------ | --------------------------- |
+| Guest (`customer_id` on **WooCommerce Order** is empty or 0)       | `Guest-{order_id}`          |
+| Company (`billing.company` on **WooCommerce Order** is set)        | `{billing.email}-{company}` |
+| Individual (`billing.company` on **WooCommerce Order** is not set) | `billing.email`             |
+
+**Address Synchronisation**
+- If the billing and shipping address on the **WooCommerce Order** is the same, a single **Address** will be created with both the *Preferred Billing Address* and *Preferred Shipping Address* checkboxes ticked.
+- If an address with *Preferred Billing Address*/*Preferred Shipping Address* ticked aleady exists, this address will be updated
 
 ## Troubleshooting
 - You can look at the list of **WooCommerce Orders** from within ERPNext by opening the **WooCommerce Order** doctype. This is a [Virtual DocType](https://frappeframework.com/docs/v15/user/en/basics/doctypes/virtual-doctype) that interacts directly with your WooCommerce site's API interface

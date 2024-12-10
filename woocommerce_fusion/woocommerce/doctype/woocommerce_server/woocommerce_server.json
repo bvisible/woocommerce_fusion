@@ -45,6 +45,8 @@
   "ignore_date_paid",
   "payment_method_bank_account_mapping",
   "payment_method_gl_account_mapping",
+  "section_addresses",
+  "address_title_convention",
   "tab_items",
   "item_section",
   "name_by",
@@ -408,11 +410,23 @@
    "fieldname": "sync_sales_orders",
    "fieldtype": "HTML",
    "options": "\n\t\t\t<div class=\"checkbox\">\n\t\t\t\t<label>\n\t\t\t\t\t<span class=\"input-area\" style=\"display: none;\"></span>\n\t\t\t\t\t<span class=\"disp-area\"><input type=\"checkbox\" disabled class=\"disabled-selected\"></span>\n\t\t\t\t\t<span class=\"label-area\">Synchronise Sales Orders</span>\n\t\t\t\t\t<span class=\"ml-1 help\"></span>\n\t\t\t\t</label>\n\t\t\t\t<p class=\"help-box small text-muted\">Create new ERPNext Sales Orders for existing and new WooCommerce Sales Orders. This can not be turned off.</p>\n\t\t\t</div>\n\t\t<span class=\"tooltip-content\">enable_so_sync</span>"
+  },
+  {
+   "fieldname": "section_addresses",
+   "fieldtype": "Section Break",
+   "label": "Addresses Sync"
+  },
+  {
+   "description": "Customer ID with Address Type: <code>{customer.name}-{address_type}</code><br>\nCustomer Name only: \n<code>{customer.customer_name}</code>",
+   "fieldname": "address_title_convention",
+   "fieldtype": "Select",
+   "label": "Address Title Naming Convention",
+   "options": "Customer ID with Address Type\nCustomer Name only"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-09-01 16:00:23.735298",
+ "modified": "2024-12-10 11:35:53.270029",
  "modified_by": "Administrator",
  "module": "WooCommerce",
  "name": "WooCommerce Server",

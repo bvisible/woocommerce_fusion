@@ -239,7 +239,6 @@ fixtures = [
 				"in",
 				(
 					"Customer-woocommerce_server",
-					"Customer-woocommerce_email",
 					"Customer-woocommerce_identifier",
 					"Customer-woocommerce_is_guest",
 					"Sales Order-woocommerce_id",
@@ -250,8 +249,6 @@ fixtures = [
 					"Sales Order-woocommerce_payment_entry",
 					"Sales Order-custom_attempted_woocommerce_auto_payment_entry",
 					"Sales Order-custom_woocommerce_last_sync_hash",
-					"Address-woocommerce_server",
-					"Address-woocommerce_email",
 					"Address-woocommerce_identifier",
 					"Item-woocommerce_servers",
 					"Item-custom_woocommerce_tab",
