@@ -5,6 +5,7 @@ from erpnext import get_default_company
 from erpnext.stock.doctype.item.test_item import create_item
 
 from woocommerce_fusion.tasks.sync_sales_orders import (
+	get_addresses_linking_to,
 	get_tax_inc_price_for_woocommerce_line_item,
 	run_sales_order_sync,
 )
@@ -64,8 +65,9 @@ class TestIntegrationWooCommerceSync(TestIntegrationWooCommerce):
 		mock_log_error.assert_not_called()
 
 		# Expect newly created Sales Order in ERPNext
-		sales_order = frappe.get_doc("Sales Order", {"woocommerce_id": wc_order_id})
-		self.assertIsNotNone(sales_order)
+		sales_order_name = frappe.get_value("Sales Order", {"woocommerce_id": wc_order_id})
+		self.assertIsNotNone(sales_order_name)
+		sales_order = frappe.get_doc("Sales Order", sales_order_name)
 
 		# Expect correct payment method title on Sales Order
 		self.assertEqual(sales_order.woocommerce_payment_method, "Doge")
@@ -107,11 +109,13 @@ class TestIntegrationWooCommerceSync(TestIntegrationWooCommerce):
 		mock_log_error.assert_not_called()
 
 		# Expect newly created Sales Order in ERPNext
-		sales_order = frappe.get_doc("Sales Order", {"woocommerce_id": wc_order_id})
-		self.assertIsNotNone(sales_order)
+		sales_order_currency = frappe.get_value(
+			"Sales Order", {"woocommerce_id": wc_order_id}, "currency"
+		)
+		self.assertIsNotNone(sales_order_currency)
 
 		# Expect correct currency in Sales Order
-		self.assertEqual(sales_order.currency, "USD")
+		self.assertEqual(sales_order_currency, "USD")
 
 		# Delete order in WooCommerce
 		self.delete_woocommerce_order(wc_order_id=wc_order_id)
@@ -149,8 +153,9 @@ class TestIntegrationWooCommerceSync(TestIntegrationWooCommerce):
 		mock_log_error.assert_not_called()
 
 		# Expect newly created Sales Order in ERPNext
-		sales_order = frappe.get_doc("Sales Order", {"woocommerce_id": wc_order_id})
-		self.assertIsNotNone(sales_order)
+		sales_order_name = frappe.get_value("Sales Order", {"woocommerce_id": wc_order_id}, "name")
+		self.assertIsNotNone(sales_order_name)
+		sales_order = frappe.get_doc("Sales Order", sales_order_name)
 
 		# Expect correct payment method title on Sales Order
 		self.assertEqual(sales_order.woocommerce_payment_method, "Doge")
@@ -183,14 +188,11 @@ class TestIntegrationWooCommerceSync(TestIntegrationWooCommerce):
 		run_sales_order_sync(woocommerce_order_name=wc_order_name)
 		mock_log_error.assert_not_called()
 
-		# Expect newly created Sales Order in ERPNext
-		sales_order = frappe.get_doc("Sales Order", {"woocommerce_id": wc_order_id})
-		self.assertIsNotNone(sales_order)
-
-		# Expect linked Payment Entry in ERPNext
-		sales_order = frappe.get_doc("Sales Order", {"woocommerce_id": wc_order_id})
-		self.assertIsNotNone(sales_order)
-		self.assertIsNotNone(sales_order.woocommerce_payment_entry)
+		# Expect newly created Sales Order and linked Payment Entry in ERPNext
+		sales_order_payment_entry = frappe.get_value(
+			"Sales Order", {"woocommerce_id": wc_order_id}, "woocommerce_payment_entry"
+		)
+		self.assertIsNotNone(sales_order_payment_entry)
 
 		# Delete order in WooCommerce
 		self.delete_woocommerce_order(wc_order_id=wc_order_id)
@@ -217,8 +219,8 @@ class TestIntegrationWooCommerceSync(TestIntegrationWooCommerce):
 		mock_log_error.assert_not_called()
 
 		# Expect newly created Sales Order in ERPNext
-		sales_order = frappe.get_doc("Sales Order", {"woocommerce_id": wc_order_id})
-		self.assertIsNotNone(sales_order)
+		sales_order_name = frappe.get_value("Sales Order", {"woocommerce_id": wc_order_id}, "name")
+		self.assertIsNotNone(sales_order_name)
 
 		# Teardown
 		wc_server = frappe.get_doc("WooCommerce Server", self.wc_server.name)
@@ -305,8 +307,9 @@ class TestIntegrationWooCommerceSync(TestIntegrationWooCommerce):
 		mock_log_error.assert_not_called()
 
 		# Expect newly created Sales Order in ERPNext
-		sales_order = frappe.get_doc("Sales Order", {"woocommerce_id": wc_order_id})
-		self.assertIsNotNone(sales_order)
+		sales_order_name = frappe.get_value("Sales Order", {"woocommerce_id": wc_order_id}, "name")
+		self.assertIsNotNone(sales_order_name)
+		sales_order = frappe.get_doc("Sales Order", sales_order_name)
 
 		# In ERPNext, change quantity of first item, and add an additional item
 		sales_order.items[0].qty = 2
@@ -365,8 +368,9 @@ class TestIntegrationWooCommerceSync(TestIntegrationWooCommerce):
 		mock_log_error.assert_not_called()
 
 		# Expect newly created Sales Order in ERPNext
-		sales_order = frappe.get_doc("Sales Order", {"woocommerce_id": wc_order_id})
-		self.assertIsNotNone(sales_order)
+		sales_order_name = frappe.get_value("Sales Order", {"woocommerce_id": wc_order_id}, "name")
+		self.assertIsNotNone(sales_order_name)
+		sales_order = frappe.get_doc("Sales Order", sales_order_name)
 
 		# Expect placeholder item
 		self.assertEqual(sales_order.items[0].item_code, "DELETED_WOOCOMMERCE_PRODUCT")
@@ -379,3 +383,68 @@ class TestIntegrationWooCommerceSync(TestIntegrationWooCommerce):
 
 		# Delete order in WooCommerce
 		self.delete_woocommerce_order(wc_order_id=wc_order_id)
+
+	def test_sync_use_same_customer_for_multiple_orders(self, mock_log_error):
+		"""
+		Test that the Sales Order Synchronisation method does not create a duplicate Customer when the same
+		customer places another order
+		"""
+		same_customer_email = "same@customer.com"
+
+		# Create a new order in WooCommerce
+		wc_order_id_first, wc_order_name_first = self.post_woocommerce_order(
+			payment_method_title="Doge", item_price=10, item_qty=1, customer_id=1, email=same_customer_email
+		)
+
+		# Run synchronisation
+		run_sales_order_sync(woocommerce_order_name=wc_order_name_first)
+
+		# Expect no errors logged
+		mock_log_error.assert_not_called()
+
+		# Expect newly created Sales Order in ERPNext
+		sales_orders = frappe.get_all(
+			"Sales Order", filters={"woocommerce_id": wc_order_id_first}, fields=["name", "customer"]
+		)
+		self.assertEqual(len(sales_orders), 1)
+
+		# Expect newly created Customer in ERPNext
+		customer_name = frappe.get_value(
+			"Customer", {"woocommerce_identifier": same_customer_email}, "name"
+		)
+		self.assertIsNotNone(customer_name)
+
+		# Expect single Address for customer, marked as preferred billing and shipping address
+		addresses = get_addresses_linking_to("Customer", customer_name)
+		self.assertEqual(len(addresses), 1)
+		address_doc = frappe.get_doc("Address", addresses[0].name)
+		self.assertEqual(address_doc.is_primary_address, 1)
+		self.assertEqual(address_doc.is_shipping_address, 1)
+
+		# Place another order from the same customer with a changed address
+		wc_order_id_second, wc_order_name_second = self.post_woocommerce_order(
+			payment_method_title="Doge",
+			item_price=10,
+			item_qty=2,
+			customer_id=1,
+			email=same_customer_email,
+			address_1="New New Street 420",
+		)
+
+		# Run synchronisation
+		run_sales_order_sync(woocommerce_order_name=wc_order_name_second)
+
+		# Expect that the order has been allocated to the initial customer
+		sales_order_name, sales_order_customer = frappe.get_value(
+			"Sales Order", {"woocommerce_id": wc_order_id_second}, ["name", "customer"]
+		)
+		self.assertEquals(sales_order_customer, customer_name)
+
+		# Expect an updated address
+		addresses = get_addresses_linking_to("Customer", customer_name)
+		address_doc = frappe.get_doc("Address", addresses[0].name)
+		self.assertEqual(address_doc.address_line1, "New New Street 420")
+
+		# Delete orders in WooCommerce
+		self.delete_woocommerce_order(wc_order_id=wc_order_id_first)
+		self.delete_woocommerce_order(wc_order_id=wc_order_id_second)

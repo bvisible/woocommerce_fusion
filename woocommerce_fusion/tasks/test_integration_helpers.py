@@ -91,6 +91,9 @@ class TestIntegrationWooCommerce(FrappeTestCase):
 		item_price: float = 10,
 		item_qty: int = 1,
 		currency: str = None,
+		customer_id: int = None,
+		email: str = "john.doe@example.com",
+		address_1: str = "123 Main St",
 	) -> Tuple[str, str]:
 		"""
 		Create a dummy order on a WooCommerce testing site
@@ -117,19 +120,19 @@ class TestIntegrationWooCommerce(FrappeTestCase):
 			"billing": {
 				"first_name": "John",
 				"last_name": "Doe",
-				"address_1": "123 Main St",
+				"address_1": address_1,
 				"address_2": "",
 				"city": "Anytown",
 				"state": "CA",
 				"postcode": "12345",
 				"country": "US",
-				"email": "john.doe@example.com",
+				"email": email,
 				"phone": "123-456-7890",
 			},
 			"shipping": {
 				"first_name": "John",
 				"last_name": "Doe",
-				"address_1": "123 Main St",
+				"address_1": address_1,
 				"address_2": "",
 				"city": "Anytown",
 				"state": "CA",
@@ -141,6 +144,8 @@ class TestIntegrationWooCommerce(FrappeTestCase):
 
 		if currency:
 			data["currency"] = currency
+		if customer_id:
+			data["customer_id"] = customer_id
 		payload = json.dumps(data)
 		headers = {"Content-Type": "application/json"}
 
