@@ -1,6 +1,7 @@
 # Copyright (c) 2024, Dirk van der Laarse and contributors
 # For license information, please see license.txt
 
+import json
 from dataclasses import dataclass
 from typing import Dict
 
@@ -31,11 +32,14 @@ class WooCommerceProduct(WooCommerceResource):
 		products = WooCommerceProduct.get_list_of_records(args)
 
 		# Extend the list with product variants
-		product_ids_with_variants = [
-			product.get("id") for product in products if product.get("type") == "variable"
+		products_with_variants = [
+			(product.get("id"), product.get("woocommerce_name"))
+			for product in products
+			if product.get("type") == "variable"
 		]
-		for id in product_ids_with_variants:
+		for id, woocommerce_name in products_with_variants:
 			args["endpoint"] = f"products/{id}/variations"
+			args["metadata"] = {"parent_woocommerce_name": woocommerce_name}
 			variants = WooCommerceProduct.get_list_of_records(args)
 			products.extend(variants)
 
@@ -47,14 +51,29 @@ class WooCommerceProduct(WooCommerceResource):
 		return product
 
 	@classmethod
-	def during_get_list_of_records(cls, product: Dict):
-		product = cls.set_title(product)
+	def during_get_list_of_records(cls, product: Dict, args):
+		# In the case of variations
+		if product["parent_id"]:
+			# Woocommerce product variantions endpoint results doesn't return the type, so set it manually
+			product["type"] = "variation"
+
+			if variation_name := cls.get_variation_name(product, args):
+				# Set the name in args, for use by set_title()
+				args["metadata"]["woocommerce_name"] = variation_name
+
+				# Override the woocommerce_name field
+				product = cls.override_woocommerce_name(product, variation_name)
+
+		product = cls.set_title(product, args)
 		return product
 
 	@staticmethod
-	def set_title(product: dict):
-		# Variations won't have the woocommerce_name property
-		if wc_name := product.get("woocommerce_name"):
+	def set_title(product: dict, args=None):
+		if (
+			args and (metadata := args.get("metadata")) and (set_name := metadata.get("woocommerce_name"))
+		):
+			product["title"] = set_name
+		elif wc_name := product.get("woocommerce_name"):
 			if sku := product.get("sku"):
 				product["title"] = f"{sku} - {wc_name}"
 			else:
@@ -63,6 +82,25 @@ class WooCommerceProduct(WooCommerceResource):
 			product["title"] = product["woocommerce_id"]
 
 		return product
+
+	@staticmethod
+	def override_woocommerce_name(product: Dict, name: str):
+		product["woocommerce_name"] = name
+		return product
+
+	@staticmethod
+	def get_variation_name(product: Dict, args):
+		# If this is a variation, we expect the variation's parent name in the metadata, then we can
+		# build an item name in the format of {parent_name}, {attribute 1}, {attribute n}
+		if (
+			(product["type"] == "variation")
+			and (metadata := args.get("metadata"))
+			and (attributes := product.get("attributes"))
+			and (parent_wc_name := metadata.get("parent_woocommerce_name"))
+		):
+			attr_values = [attr["option"] for attr in json.loads(attributes)]
+			return parent_wc_name + " - " + ", ".join(attr_values)
+		return None
 
 	# use "args" despite frappe-semgrep-rules.rules.overusing-args, following convention in ERPNext
 	# nosemgrep
