@@ -211,7 +211,6 @@ class SynchroniseItem(SynchroniseWooCommerce):
 		itm = frappe.qb.DocType("Item")
 
 		and_conditions = [
-			iws.enabled == 1,
 			iws.woocommerce_server == self.woocommerce_product.woocommerce_server,
 			iws.woocommerce_id == self.woocommerce_product.woocommerce_id,
 		]
@@ -520,6 +519,16 @@ class SynchroniseItem(SynchroniseWooCommerce):
 			self.item.item_woocommerce_server.name,
 			"woocommerce_last_sync_hash",
 			self.woocommerce_product.woocommerce_date_modified,
+			update_modified=False,
+		)
+
+		# If item was synchronised but the item is set not to sync, turn on the enabled flag
+		# Items that are disabled for sync will still be synced if it is ordered on WooCommerce
+		frappe.db.set_value(
+			"Item WooCommerce Server",
+			self.item.item_woocommerce_server.name,
+			"enabled",
+			1,
 			update_modified=False,
 		)
 

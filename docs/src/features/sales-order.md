@@ -32,6 +32,8 @@ Every hour, a background task runs that performs the following steps:
 ## Synchronisation Logic
 When comparing a **WooCommerce Order** with it's counterpart ERPNext **Sales Order**, the `date_modified` field on **WooCommerce Order** is compared with the `modified` field of ERPNext **Sales Order**. The last modified document will be used as master when syncronising
 
+Note that if sync for an **Item** is disabled (i.e. the "Enabled" checkbox on the Item's WooCommerce Server row is unchecked) and an **WooCommerce Order** is placed for this item, synchronisation will be re-enabled for this item.
+
 ## Fields Mapping
 
 | WooCommerce | ERPNext                                       | Note                                                                                                                                                                                  |

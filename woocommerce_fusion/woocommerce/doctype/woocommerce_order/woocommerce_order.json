@@ -248,7 +248,7 @@
   {
    "description": "Payment method title.",
    "fieldname": "payment_method_title",
-   "fieldtype": "Data",
+   "fieldtype": "Long Text",
    "label": "Payment Method Title",
    "read_only": 1
   },
@@ -370,7 +370,7 @@
  "index_web_pages_for_search": 1,
  "is_virtual": 1,
  "links": [],
- "modified": "2024-07-01 09:02:14.658604",
+ "modified": "2024-12-12 08:17:46.566425",
  "modified_by": "Administrator",
  "module": "WooCommerce",
  "name": "WooCommerce Order",

@@ -188,7 +188,7 @@ class WooCommerceResource(Document):
 					for record in results[start:end]:
 						cls.pre_init_document(record=record, woocommerce_server_url=wc_server.woocommerce_server_url)
 
-						cls.during_get_list_of_records(record)
+						cls.during_get_list_of_records(record, args)
 
 					all_results.extend(results[start:end])
 					total_processed += len(results)
@@ -215,7 +215,7 @@ class WooCommerceResource(Document):
 				return all_results
 
 	@classmethod
-	def during_get_list_of_records(cls, record: Document):
+	def during_get_list_of_records(cls, record: Document, args):
 		return record
 
 	# use "args" despite frappe-semgrep-rules.rules.overusing-args, following convention in ERPNext

@@ -112,6 +112,7 @@ class TestIntegrationWooCommerceItemsSync(TestIntegrationWooCommerce):
 		self.assertEqual(len(item.attributes), 1)
 		self.assertEqual(item.attributes[0].attribute, "Material Type")
 		self.assertIsNotNone(item.attributes[0].attribute_value)
+		self.assertEqual(item.item_name, "T-SHIRT parent - Option 1")
 
 	def test_sync_create_new_wc_product_when_synchronising_with_woocommerce(self, mock_log_error):
 		"""
