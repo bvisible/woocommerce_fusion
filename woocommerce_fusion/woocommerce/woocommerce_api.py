@@ -162,7 +162,11 @@ class WooCommerceResource(Document):
 					log_and_raise_error(error_text="get_list failed", response=response)
 
 				# Store the count of total records in this API
-				count_of_total_records_in_api = int(response.headers["x-wp-total"])
+				# Handle some endpoints that do not return the count in the header
+				if "x-wp-total" in response.headers:
+					count_of_total_records_in_api = int(response.headers["x-wp-total"])
+				else:
+					count_of_total_records_in_api = len(response.json())
 
 				# Skip this API if all its records fall before the required offset
 				if count_of_total_records_in_api <= offset - total_processed:
@@ -352,14 +356,15 @@ class WooCommerceResource(Document):
 		if "_links" in record:
 			record.pop("_links")
 
-		# Map Frappe metadata to WooCommerce
-		record["modified"] = record["date_modified"]
+		# Do a check for metadata, if it exist, map Frappe metadata to WooCommerce
+		if "date_modified" in record:
+			record["modified"] = record["date_modified"]
 
-		# Set WooCommerce fields
-		record["woocommerce_date_created"] = record["date_created"]
-		record["woocommerce_date_created_gmt"] = record["date_created_gmt"]
-		record["woocommerce_date_modified"] = record["date_modified"]
-		record["woocommerce_date_modified_gmt"] = record["date_modified_gmt"]
+			# Set WooCommerce fields
+			record["woocommerce_date_created"] = record["date_created"]
+			record["woocommerce_date_created_gmt"] = record["date_created_gmt"]
+			record["woocommerce_date_modified"] = record["date_modified"]
+			record["woocommerce_date_modified_gmt"] = record["date_modified_gmt"]
 
 		# Define woocommerce_server_url
 		server_domain = parse_domain_from_url(woocommerce_server_url)

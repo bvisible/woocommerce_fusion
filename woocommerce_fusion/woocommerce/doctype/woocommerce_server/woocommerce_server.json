@@ -47,6 +47,9 @@
   "payment_method_gl_account_mapping",
   "section_addresses",
   "address_title_convention",
+  "shipping_methods_sync_section",
+  "enable_shipping_methods_sync",
+  "shipping_rule_map",
   "tab_items",
   "item_section",
   "name_by",
@@ -422,11 +425,29 @@
    "fieldtype": "Select",
    "label": "Address Title Naming Convention",
    "options": "Customer ID with Address Type\nCustomer Name only"
+  },
+  {
+   "fieldname": "shipping_methods_sync_section",
+   "fieldtype": "Section Break",
+   "label": "Shipping Methods Sync"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_shipping_methods_sync",
+   "fieldtype": "Check",
+   "label": "Enable Shipping Methods Sync"
+  },
+  {
+   "depends_on": "eval: doc.enable_shipping_methods_sync === 1",
+   "fieldname": "shipping_rule_map",
+   "fieldtype": "Table",
+   "label": "Map WooCommerce Shipping Methods to ERPNext Shipping Rules",
+   "options": "WooCommerce Server Shipping Rule"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-12-10 11:35:53.270029",
+ "modified": "2024-12-16 07:12:48.347102",
  "modified_by": "Administrator",
  "module": "WooCommerce",
  "name": "WooCommerce Server",

@@ -428,6 +428,21 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 		new_sales_order.delivery_date = frappe.utils.add_days(created_date[0], delivery_after)
 		new_sales_order.company = wc_server.company
 		new_sales_order.currency = wc_order.currency
+
+		if (wc_server.enable_shipping_methods_sync) and (
+			shipping_lines := json.loads(wc_order.shipping_lines)
+		):
+			if len(wc_order.shipping_lines) > 0:
+				shipping_rule_mapping = next(
+					(
+						rule
+						for rule in wc_server.shipping_rule_map
+						if rule.wc_shipping_method_id == shipping_lines[0]["method_id"]
+					),
+					None,
+				)
+				new_sales_order.shipping_rule = shipping_rule_mapping.shipping_rule
+
 		self.set_items_in_sales_order(new_sales_order, wc_order)
 		new_sales_order.flags.ignore_mandatory = True
 		new_sales_order.flags.created_by_sync = True

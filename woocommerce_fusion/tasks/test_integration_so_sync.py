@@ -11,6 +11,7 @@ from woocommerce_fusion.tasks.sync_sales_orders import (
 )
 from woocommerce_fusion.tasks.test_integration_helpers import (
 	TestIntegrationWooCommerce,
+	create_shipping_rule,
 	get_woocommerce_server,
 )
 
@@ -448,3 +449,44 @@ class TestIntegrationWooCommerceSync(TestIntegrationWooCommerce):
 		# Delete orders in WooCommerce
 		self.delete_woocommerce_order(wc_order_id=wc_order_id_first)
 		self.delete_woocommerce_order(wc_order_id=wc_order_id_second)
+
+	def test_sync_links_shipping_rule_when_synchronising_with_woocommerce(self, mock_log_error):
+		"""
+		Test that the Sales Order Synchronisation method links a Shipping Rule on the created
+		Sales order when Shipping Rule Sync is enabled and a mapping exists.
+		"""
+		# Setup: Create a Shipping Rule
+		sr = create_shipping_rule(shipping_rule_type="Selling", shipping_rule_name="Woo Shipping")
+
+		# Setup: Map WooCommerce Shipping Method to ERPNext Shipping Rule
+		wc_server = frappe.get_doc("WooCommerce Server", self.wc_server.name)
+		wc_server.enable_shipping_methods_sync = 1
+		wc_server.shipping_rule_map = []
+		wc_server.append(
+			"shipping_rule_map",
+			{"wc_shipping_method_id": "flat_rate", "shipping_rule": sr.name},
+		)
+		wc_server.flags.ignore_mandatory = True
+		wc_server.save()
+
+		# Create a new order in WooCommerce
+		wc_order_id, wc_order_name = self.post_woocommerce_order(
+			payment_method_title="Doge", item_price=10, item_qty=1, shipping_method_id="flat_rate"
+		)
+
+		# Run synchronisation
+		run_sales_order_sync(woocommerce_order_name=wc_order_name)
+
+		# Expect no errors logged
+		mock_log_error.assert_not_called()
+
+		# Expect newly created Sales Order in ERPNext
+		sales_order_name = frappe.get_value("Sales Order", {"woocommerce_id": wc_order_id})
+		self.assertIsNotNone(sales_order_name)
+		sales_order = frappe.get_doc("Sales Order", sales_order_name)
+
+		# Expect correct Shipping Rule on Sales Order
+		self.assertEqual(sales_order.shipping_rule, sr.name)
+
+		# Delete order in WooCommerce
+		self.delete_woocommerce_order(wc_order_id=wc_order_id)

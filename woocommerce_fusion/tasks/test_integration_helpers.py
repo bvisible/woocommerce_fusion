@@ -94,6 +94,7 @@ class TestIntegrationWooCommerce(FrappeTestCase):
 		customer_id: int = None,
 		email: str = "john.doe@example.com",
 		address_1: str = "123 Main St",
+		shipping_method_id: str = None,
 	) -> Tuple[str, str]:
 		"""
 		Create a dummy order on a WooCommerce testing site
@@ -146,6 +147,10 @@ class TestIntegrationWooCommerce(FrappeTestCase):
 			data["currency"] = currency
 		if customer_id:
 			data["customer_id"] = customer_id
+		if shipping_method_id:
+			data["shipping_lines"] = [
+				{"method_id": shipping_method_id, "method_title": shipping_method_id, "total": "10.00"}
+			]
 		payload = json.dumps(data)
 		headers = {"Content-Type": "application/json"}
 
@@ -443,3 +448,22 @@ def get_woocommerce_server(woocommerce_server_url: str):
 	)
 	wc_server = wc_servers[0] if len(wc_servers) > 0 else None
 	return wc_server
+
+
+def create_shipping_rule(shipping_rule_type, shipping_rule_name):
+
+	if frappe.db.exists("Shipping Rule", shipping_rule_name):
+		return frappe.get_doc("Shipping Rule", shipping_rule_name)
+
+	sr = frappe.new_doc("Shipping Rule")
+	sr.account = "Freight and Forwarding Charges - SC"
+	sr.calculate_based_on = "Net Total"
+	sr.company = "Some Company (Pty) Ltd"
+	sr.cost_center = "Main - SC"
+	sr.label = shipping_rule_name
+	sr.name = shipping_rule_name
+	sr.shipping_rule_type = shipping_rule_type
+
+	sr.insert(ignore_permissions=True)
+	sr.submit()
+	return sr
