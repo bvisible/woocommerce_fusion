@@ -234,9 +234,15 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 				sales_order.woocommerce_status = wc_order_status
 				so_dirty = True
 
-			# Update the payment_method_title field if necessary
-			if sales_order.woocommerce_payment_method != woocommerce_order.payment_method_title:
-				sales_order.woocommerce_payment_method = woocommerce_order.payment_method_title
+			# Update the payment_method_title field if necessary, use the payment method ID
+			# if the title field is too long
+			payment_method = (
+				woocommerce_order.payment_method_title
+				if len(woocommerce_order.payment_method_title) < 140
+				else woocommerce_order.payment_method
+			)
+			if sales_order.woocommerce_payment_method != payment_method:
+				sales_order.woocommerce_payment_method = payment_method
 				so_dirty = True
 
 			if not sales_order.woocommerce_payment_entry:
@@ -421,7 +427,13 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 		wc_server = frappe.get_cached_doc("WooCommerce Server", wc_order.woocommerce_server)
 
 		new_sales_order.woocommerce_server = wc_order.woocommerce_server
-		new_sales_order.woocommerce_payment_method = wc_order.payment_method_title
+		# Set the payment_method_title field if necessary, use the payment method ID if the title field is too long
+		payment_method = (
+			wc_order.payment_method_title
+			if len(wc_order.payment_method_title) < 140
+			else wc_order.payment_method
+		)
+		new_sales_order.woocommerce_payment_method = payment_method
 		created_date = wc_order.date_created.split("T")
 		new_sales_order.transaction_date = created_date[0]
 		delivery_after = wc_server.delivery_after_days or 7
