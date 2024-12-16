@@ -36,6 +36,37 @@ frappe.ui.form.on('WooCommerce Server', {
 			}
 		});
 
+		if (frm.doc.enable_shipping_methods_sync) {
+			frm.trigger('get_shipping_methods');
+		}
+
+	},
+	// Handle click of 'Enable Shipping Methods Sync'
+	enable_shipping_methods_sync: function(frm){
+		if (frm.doc.enable_shipping_methods_sync && !frm.fields_dict.shipping_rule_map.grid.get_docfield("wc_shipping_method_id").options){
+			frm.trigger('get_shipping_methods');
+		}
+	},
+	// Retrieve shipping methods
+	get_shipping_methods: function(frm){
+		frappe.dom.freeze(__("Fetching Shipping Methods from WooCommerce"));
+		frappe.call({
+			method: "get_shipping_methods",
+			doc: frm.doc,
+			callback: function(r) {
+				// Join the strings with newline characters to create the final string
+				const options = r.message.join('\n');
+
+				// Set the Options property
+				frm.fields_dict.shipping_rule_map.grid.update_docfield_property(
+					"wc_shipping_method_id",
+					"options",
+					options
+				);
+
+				frappe.dom.unfreeze();
+			}
+		});
 	},
 	// View WooCommerce Webhook Configuration
 	view_webhook_config: function(frm) {

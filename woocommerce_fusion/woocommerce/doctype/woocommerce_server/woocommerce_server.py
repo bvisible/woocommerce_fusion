@@ -1,6 +1,7 @@
 # Copyright (c) 2023, Dirk van der Laarse and contributors
 # For license information, please see license.txt
 
+from typing import List
 from urllib.parse import urlparse
 
 import frappe
@@ -80,6 +81,19 @@ class WooCommerceServer(Document):
 			filters=[["fieldtype", "not in", invalid_field_types], ["dt", "=", "Item"]],
 		)
 		return docfields + custom_fields
+
+	@frappe.whitelist()
+	@redis_cache(ttl=86400)
+	def get_shipping_methods(self) -> List[str]:
+		"""
+		Retrieve list of Shipping Methods from WooCommerce
+		"""
+		woocommerce_shipping_method = frappe.get_doc({"doctype": "WooCommerce Shipping Method"})
+		shipping_methods = woocommerce_shipping_method.get_list(
+			args={"filters": {}, "page_lenth": 100, "start": 0, "as_doc": True}
+		)
+
+		return [method.woocommerce_id for method in shipping_methods]
 
 
 @frappe.whitelist()

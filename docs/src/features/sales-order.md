@@ -61,6 +61,12 @@ Each **Customer** record has a `woocommerce_identifier` custom field. This ident
 - If the billing and shipping address on the **WooCommerce Order** is the same, a single **Address** will be created with both the *Preferred Billing Address* and *Preferred Shipping Address* checkboxes ticked.
 - If an address with *Preferred Billing Address*/*Preferred Shipping Address* ticked aleady exists, this address will be updated
 
+**Shipping Rule Synchronisation**
+- You can enable the synchronisation of WooCommerce Shipping Methods to ERPNext Shipping Rules on Sales Orders
+- For this to work, you have to map WooCommerce Shipping Methods to ERPNext Shipping Rules 
+
+![Sales Order Sync Shipping Rule Map](../images/so-shipping-rule.png)
+
 ## Troubleshooting
 - You can look at the list of **WooCommerce Orders** from within ERPNext by opening the **WooCommerce Order** doctype. This is a [Virtual DocType](https://frappeframework.com/docs/v15/user/en/basics/doctypes/virtual-doctype) that interacts directly with your WooCommerce site's API interface
 - Any errors during this process can be found under **Error Log**.
