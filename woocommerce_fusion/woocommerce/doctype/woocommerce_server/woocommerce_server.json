@@ -50,6 +50,10 @@
   "shipping_methods_sync_section",
   "enable_shipping_methods_sync",
   "shipping_rule_map",
+  "so_status_sync_section",
+  "enable_so_status_sync",
+  "enable_so_status_sync_warning_html",
+  "sales_order_status_map",
   "tab_items",
   "item_section",
   "name_by",
@@ -443,11 +447,36 @@
    "fieldtype": "Table",
    "label": "Map WooCommerce Shipping Methods to ERPNext Shipping Rules",
    "options": "WooCommerce Server Shipping Rule"
+  },
+  {
+   "fieldname": "so_status_sync_section",
+   "fieldtype": "Section Break",
+   "label": "Sales Order Status Sync"
+  },
+  {
+   "default": "0",
+   "description": "When enabled the Order Status for both ERPNext and WooCommerce orders will be automatically updated if either changes",
+   "fieldname": "enable_so_status_sync",
+   "fieldtype": "Check",
+   "label": "Keep the Status of ERPNext Sales Orders and WooCommerce Orders in sync"
+  },
+  {
+   "depends_on": "eval: doc.enable_so_status_sync",
+   "description": "For example, if you map the ERPNext status \"To Deliver\" to the WooCommerce status \"Processing\", as soon as the ERPNext Sales Order's status changes, an attempt will be made to update the linked WooCommerce Order status to \"Processing\"",
+   "fieldname": "sales_order_status_map",
+   "fieldtype": "Table",
+   "label": "Sales Order Status Map",
+   "options": "WooCommerce Server Order Status"
+  },
+  {
+   "depends_on": "eval: doc.enable_so_status_sync",
+   "fieldname": "enable_so_status_sync_warning_html",
+   "fieldtype": "HTML"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-12-16 07:12:48.347102",
+ "modified": "2024-12-19 22:11:00.798398",
  "modified_by": "Administrator",
  "module": "WooCommerce",
  "name": "WooCommerce Server",

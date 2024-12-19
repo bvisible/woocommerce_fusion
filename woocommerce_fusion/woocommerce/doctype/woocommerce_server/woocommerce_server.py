@@ -10,6 +10,9 @@ from frappe.model.document import Document
 from frappe.utils.caching import redis_cache
 from woocommerce import API
 
+from woocommerce_fusion.woocommerce.doctype.woocommerce_order.woocommerce_order import (
+	WC_ORDER_STATUS_MAPPING,
+)
 from woocommerce_fusion.woocommerce.woocommerce_api import parse_domain_from_url
 
 
@@ -32,6 +35,19 @@ class WooCommerceServer(Document):
 
 		if not self.secret:
 			self.secret = frappe.generate_hash()
+
+		self.validate_so_status_map()
+
+	def validate_so_status_map(self):
+		"""
+		Validate Sales Order Status Map to have unique mappings
+		"""
+		erpnext_so_statuses = [map.erpnext_sales_order_status for map in self.sales_order_status_map]
+		if len(erpnext_so_statuses) != len(set(erpnext_so_statuses)):
+			frappe.throw(_("Duplicate ERPNext Sales Order Statuses found in Sales Order Status Map"))
+		wc_so_statuses = [map.woocommerce_sales_order_status for map in self.sales_order_status_map]
+		if len(wc_so_statuses) != len(set(wc_so_statuses)):
+			frappe.throw(_("Duplicate WooCommerce Sales Order Statuses found in Sales Order Status Map"))
 
 	def get_shipment_providers(self):
 		"""
@@ -94,6 +110,14 @@ class WooCommerceServer(Document):
 		)
 
 		return [method.woocommerce_id for method in shipping_methods]
+
+	@frappe.whitelist()
+	@redis_cache(ttl=86400)
+	def get_woocommerce_order_status_list(self) -> List[str]:
+		"""
+		Retrieve list of WooCommerce Order Statuses
+		"""
+		return [val for val in WC_ORDER_STATUS_MAPPING.values()]
 
 
 @frappe.whitelist()

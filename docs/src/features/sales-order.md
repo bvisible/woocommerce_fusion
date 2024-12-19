@@ -67,6 +67,17 @@ Each **Customer** record has a `woocommerce_identifier` custom field. This ident
 
 ![Sales Order Sync Shipping Rule Map](../images/so-shipping-rule.png)
 
+
+**Automatic Order Status Synchronisation**
+
+⚠️ This setting is Experimental. Monitor your Error Log after enabling this setting
+- You can enable the synchronisation of ERPNext Order Status to WooCommerce Order Status by checking the "Keep the Status of ERPNext Sales Orders and WooCommerce Orders in sync" checkbox
+- For this to work, you have to map **ERPNext Sales Order Statuses** to **WooCommerce Sales Order Statuses**
+- For example, if you map `On Hold` (ERPNext Sales Order Status) to `on-hold` (WooCommerce Sales Order Status), if you change a Sales Order's status to `On Hold`, it'll automatically attempt to set the WooCommerce Order's status to `On  Hold`
+
+![Sales Order Status Sync](../images/so-order-status.png)
+
+
 ## Troubleshooting
 - You can look at the list of **WooCommerce Orders** from within ERPNext by opening the **WooCommerce Order** doctype. This is a [Virtual DocType](https://frappeframework.com/docs/v15/user/en/basics/doctypes/virtual-doctype) that interacts directly with your WooCommerce site's API interface
 - Any errors during this process can be found under **Error Log**.
