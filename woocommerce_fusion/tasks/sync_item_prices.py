@@ -86,6 +86,7 @@ class SynchroniseItemPrice(SynchroniseWooCommerce):
 			and_conditions.append(ip.price_list == self.wc_server.price_list)
 			and_conditions.append(iwc.woocommerce_server == self.wc_server.name)
 			and_conditions.append(item.disabled == 0)
+			and_conditions.append(iwc.woocommerce_id.isnotnull())
 			if self.item_code:
 				and_conditions.append(ip.item_code == self.item_code)
 

@@ -76,51 +76,52 @@ def update_stock_levels_on_woocommerce_site(item_code):
 		)
 
 		for wc_site in item.woocommerce_servers:
-			woocommerce_id = wc_site.woocommerce_id
-			woocommerce_server = wc_site.woocommerce_server
-			wc_server = frappe.get_cached_doc("WooCommerce Server", woocommerce_server)
+			if wc_site.woocommerce_id:
+				woocommerce_id = wc_site.woocommerce_id
+				woocommerce_server = wc_site.woocommerce_server
+				wc_server = frappe.get_cached_doc("WooCommerce Server", woocommerce_server)
 
-			if (
-				not wc_server
-				or not wc_server.enable_sync
-				or not wc_site.enabled
-				or not wc_server.enable_stock_level_synchronisation
-			):
-				continue
+				if (
+					not wc_server
+					or not wc_server.enable_sync
+					or not wc_site.enabled
+					or not wc_server.enable_stock_level_synchronisation
+				):
+					continue
 
-			wc_api = APIWithRequestLogging(
-				url=wc_server.woocommerce_server_url,
-				consumer_key=wc_server.api_consumer_key,
-				consumer_secret=wc_server.api_consumer_secret,
-				version="wc/v3",
-				timeout=40,
-			)
+				wc_api = APIWithRequestLogging(
+					url=wc_server.woocommerce_server_url,
+					consumer_key=wc_server.api_consumer_key,
+					consumer_secret=wc_server.api_consumer_secret,
+					version="wc/v3",
+					timeout=40,
+				)
 
-			# Sum all quantities from select warehouses and round the total down (WooCommerce API doesn't accept float values)
-			data_to_post = {
-				"stock_quantity": math.floor(
-					sum(
-						bin.actual_qty
-						for bin in bins
-						if bin.warehouse in [row.warehouse for row in wc_server.warehouses]
+				# Sum all quantities from select warehouses and round the total down (WooCommerce API doesn't accept float values)
+				data_to_post = {
+					"stock_quantity": math.floor(
+						sum(
+							bin.actual_qty
+							for bin in bins
+							if bin.warehouse in [row.warehouse for row in wc_server.warehouses]
+						)
 					)
-				)
-			}
+				}
 
-			try:
-				response = wc_api.put(endpoint=f"products/{woocommerce_id}", data=data_to_post)
-			except Exception as err:
-				error_message = f"{frappe.get_traceback()}\n\nData in PUT request: \n{str(data_to_post)}"
-				frappe.log_error("WooCommerce Error", error_message)
-				raise err
-			if response.status_code != 200:
-				error_message = f"Status Code not 200\n\nData in PUT request: \n{str(data_to_post)}"
-				error_message += (
-					f"\n\nResponse: \n{response.status_code}\nResponse Text: {response.text}\nRequest URL: {response.request.url}\nRequest Body: {response.request.body}"
-					if response is not None
-					else ""
-				)
-				frappe.log_error("WooCommerce Error", error_message)
-				raise ValueError(error_message)
+				try:
+					response = wc_api.put(endpoint=f"products/{woocommerce_id}", data=data_to_post)
+				except Exception as err:
+					error_message = f"{frappe.get_traceback()}\n\nData in PUT request: \n{str(data_to_post)}"
+					frappe.log_error("WooCommerce Error", error_message)
+					raise err
+				if response.status_code != 200:
+					error_message = f"Status Code not 200\n\nData in PUT request: \n{str(data_to_post)}"
+					error_message += (
+						f"\n\nResponse: \n{response.status_code}\nResponse Text: {response.text}\nRequest URL: {response.request.url}\nRequest Body: {response.request.body}"
+						if response is not None
+						else ""
+					)
+					frappe.log_error("WooCommerce Error", error_message)
+					raise ValueError(error_message)
 
 		return True
