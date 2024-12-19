@@ -16,7 +16,8 @@ env:
   TEST_AGAINST_ERPNEXT_VERSION: v15.41.1
 
 jobs:
-  runs-on: ubuntu-22.04 
+  tests:
+    runs-on: ubuntu-22.04 
     strategy:
       fail-fast: false
     name: Backend Unit Tests & UI Tests
