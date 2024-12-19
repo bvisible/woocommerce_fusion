@@ -166,7 +166,10 @@ class WooCommerceResource(Document):
 				if "x-wp-total" in response.headers:
 					count_of_total_records_in_api = int(response.headers["x-wp-total"])
 				else:
-					count_of_total_records_in_api = len(response.json())
+					try:
+						count_of_total_records_in_api = len(response.json())
+					except Exception as err:
+						log_and_raise_error(error_text="Unexpected response", response=response)
 
 				# Skip this API if all its records fall before the required offset
 				if count_of_total_records_in_api <= offset - total_processed:
