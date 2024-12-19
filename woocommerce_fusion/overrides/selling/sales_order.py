@@ -61,7 +61,6 @@ class CustomSalesOrder(SalesOrder):
 				)
 				if mapping:
 					if self.woocommerce_status != mapping.woocommerce_sales_order_status:
-						self.woocommerce_status = mapping.woocommerce_sales_order_status
 						frappe.enqueue(run_sales_order_sync, queue="long", sales_order_name=self.name)
 
 
