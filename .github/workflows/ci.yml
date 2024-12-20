@@ -17,14 +17,14 @@ env:
 
 jobs:
   tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04 
     strategy:
       fail-fast: false
     name: Backend Unit Tests & UI Tests
 
     services:
       mariadb:
-        image: mariadb:10.6
+        image: mariadb:10.11
         env:
           MYSQL_ROOT_PASSWORD: root
         ports:

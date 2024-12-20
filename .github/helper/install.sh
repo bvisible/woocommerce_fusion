@@ -6,7 +6,7 @@ cd ~ || exit
 
 sudo apt update
 sudo apt remove mysql-server mysql-client
-sudo apt install libcups2-dev redis-server mariadb-client-10.6
+sudo apt install libcups2-dev redis-server mariadb-client
 # Dependencies for cypress: https://docs.cypress.io/guides/continuous-integration/introduction#UbuntuDebian
 sudo apt-get install libgtk2.0-0 libgtk-3-0 libgbm-dev libnotify-dev libgconf-2-4 libnss3 libxss1 libasound2 libxtst6 xauth xvfb
 
