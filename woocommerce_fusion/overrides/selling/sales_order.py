@@ -43,9 +43,9 @@ class CustomSalesOrder(SalesOrder):
 			naming_series = get_default_naming_series("Sales Order")
 			self.name = make_autoname(key=naming_series)
 
-	def on_update_after_submit(self):
+	def on_change(self):
 		"""
-		This is called when a submitted document values are updated.
+		This is called when a document's values has been changed (including db_set).
 		"""
 		# If Sales Order Status Sync is enabled, update the WooCommerce status of the Sales Order
 		if self.woocommerce_id and self.woocommerce_server:
@@ -61,6 +61,9 @@ class CustomSalesOrder(SalesOrder):
 				)
 				if mapping:
 					if self.woocommerce_status != mapping.woocommerce_sales_order_status:
+						frappe.db.set_value(
+							"Sales Order", self.name, "woocommerce_status", mapping.woocommerce_sales_order_status
+						)
 						frappe.enqueue(run_sales_order_sync, queue="long", sales_order_name=self.name)
 
 

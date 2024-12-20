@@ -117,7 +117,7 @@ class WooCommerceServer(Document):
 		"""
 		Retrieve list of WooCommerce Order Statuses
 		"""
-		return [val for val in WC_ORDER_STATUS_MAPPING.values()]
+		return [key for key in WC_ORDER_STATUS_MAPPING.keys()]
 
 
 @frappe.whitelist()

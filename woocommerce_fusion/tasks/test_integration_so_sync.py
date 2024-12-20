@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 import frappe
 from erpnext import get_default_company
+from erpnext.selling.doctype.sales_order.sales_order import update_status
 from erpnext.stock.doctype.item.test_item import create_item
 
 from woocommerce_fusion.tasks.sync_sales_orders import (
@@ -491,8 +492,9 @@ class TestIntegrationWooCommerceSync(TestIntegrationWooCommerce):
 		# Delete order in WooCommerce
 		self.delete_woocommerce_order(wc_order_id=wc_order_id)
 
+	@patch("woocommerce_fusion.tasks.sync_sales_orders.frappe.enqueue")
 	def test_sync_updates_woocommerce_order_status_when_synchronising_with_woocommerce(
-		self, mock_log_error
+		self, mock_enqueue, mock_log_error
 	):
 		"""
 		Test that the Sales Order Synchronisation method updates a WooCommerce Order's status
@@ -508,7 +510,7 @@ class TestIntegrationWooCommerceSync(TestIntegrationWooCommerce):
 			"sales_order_status_map",
 			{
 				"erpnext_sales_order_status": "On Hold",
-				"woocommerce_sales_order_status": "on-hold",
+				"woocommerce_sales_order_status": "On hold",
 			},
 		)
 		wc_server.flags.ignore_mandatory = True
@@ -531,8 +533,7 @@ class TestIntegrationWooCommerceSync(TestIntegrationWooCommerce):
 		sales_order = frappe.get_doc("Sales Order", sales_order_name)
 
 		# In ERPNext, change order status
-		sales_order.status = "Closed"
-		sales_order.save()
+		sales_order.update_status("On Hold")
 
 		# Run synchronisation again, to sync the Sales Order changes
 		run_sales_order_sync(sales_order_name=sales_order.name)
@@ -540,7 +541,7 @@ class TestIntegrationWooCommerceSync(TestIntegrationWooCommerce):
 
 		# Expect WooCommerce Order to have updated status
 		wc_order = self.get_woocommerce_order(order_id=wc_order_id)
-		self.assertEqual(wc_order, "on-hold")
+		self.assertEqual(wc_order["status"], "on-hold")
 
 		# Delete order in WooCommerce
 		self.delete_woocommerce_order(wc_order_id=wc_order_id)
