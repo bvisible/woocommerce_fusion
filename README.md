@@ -1,7 +1,7 @@
 ## WooCommerce Fusion
 
-![CI workflow](https://github.com/dvdl16/woocommerce_fusion/actions/workflows/ci.yml/badge.svg?branch=version-15)
-[![codecov](https://codecov.io/gh/dvdl16/woocommerce_fusion/graph/badge.svg?token=A5OR5QIOUX)](https://codecov.io/gh/dvdl16/woocommerce_fusion)
+![CI workflow](https://github.com/bvisible/woocommerce_fusion/actions/workflows/ci.yml/badge.svg?branch=version-15)
+[![codecov](https://codecov.io/gh/bvisible/woocommerce_fusion/graph/badge.svg?token=A5OR5QIOUX)](https://codecov.io/gh/bvisible/woocommerce_fusion)
 
 WooCommerce connector for ERPNext v15
 
@@ -26,7 +26,7 @@ User documentation is hosted at [woocommerce-fusion-docs.finfoot.tech](https://w
 3. Once ERPNext is installed, add the woocommerce_fusion app to your bench by running
 
 	```sh
-	$ bench get-app https://github.com/dvdl16/woocommerce_fusion
+	$ bench get-app https://github.com/bvisible/woocommerce_fusion
 	```
 4. After that, you can install the woocommerce_fusion app on the required site by running
 	```sh
