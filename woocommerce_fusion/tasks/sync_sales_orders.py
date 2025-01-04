@@ -261,11 +261,11 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 		"""
 		try:
 			if not sales_order.grand_total or sales_order.grand_total <= 0:
-				frappe.log_error(f"La commande {sales_order.name} n'a pas de montant valide")
+				frappe.log_error(f"The order {sales_order.name} does not have a valid amount")
 				return False
 
 			if sales_order.docstatus != 1:
-				frappe.log_error(f"La commande {sales_order.name} n'est pas soumise")
+				frappe.log_error(f"The order {sales_order.name} is not submitted")
 				return False
 
 			wc_server = frappe.get_cached_doc("WooCommerce Server", sales_order.woocommerce_server)
@@ -305,13 +305,13 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 				}
 
 				if not stripe_details.get("_stripe_charge_captured") or stripe_details["_stripe_charge_captured"] != "yes":
-					frappe.log_error(f"Paiement Stripe non capturé pour {sales_order.name}")
+					frappe.log_error(f"Stripe payment not captured for {sales_order.name}")
 					return False
 
 				if stripe_details.get("_stripe_net"):
 					stripe_net_amount = flt(stripe_details.get("_stripe_net"))
 
-			# Créer la facture d'abord si l'option est activée
+			# Create invoice first if option is enabled
 			sales_invoice = None
 			if wc_server.auto_create_invoice:
 				sales_invoice = make_sales_invoice(sales_order.name)
@@ -325,7 +325,7 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 				sales_invoice.submit()
 				frappe.db.commit()
 
-			# Créer le paiement
+			# Create payment
 			payment_entry = get_payment_entry(
 				dt="Sales Order" if not sales_invoice else "Sales Invoice",
 				dn=sales_order.name if not sales_invoice else sales_invoice.name,
@@ -345,13 +345,13 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 					stripe_fee = float(stripe_details.get("_stripe_fee", 0))
 					stripe_net = float(stripe_details.get("_stripe_net", 0))
 					
-					# Mettre à jour le montant payé et reçu avec le montant net Stripe
+					# Update paid and received amount with Stripe net amount
 					payment_entry.update({
 						"paid_amount": stripe_net,
 						"received_amount": stripe_net
 					})
 
-					# Ajouter les frais Stripe comme déduction
+					# Add Stripe fees as deduction
 					payment_entry.append("deductions", {
 						"account": fee_account,
 						"cost_center": wc_server.cost_center or frappe.db.get_value("Company", payment_entry.company, "cost_center"),
@@ -380,7 +380,7 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 			return True
 
 		except Exception as e:
-			frappe.log_error(f"Erreur lors de la création du paiement: {str(e)}")
+			frappe.log_error(f"Error while creating payment: {str(e)}")
 			return False
 
 	@staticmethod
@@ -477,14 +477,14 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 		new_sales_order.company = wc_server.company
 		new_sales_order.currency = wc_order.currency
 
-		# Désactiver l'arrondi des totaux pour correspondre exactement aux montants WooCommerce
+		# Disable total rounding to match WooCommerce amounts exactly
 		new_sales_order.disable_rounded_total = 1
 
 		if (wc_server.enable_shipping_methods_sync) and (
 				shipping_lines := json.loads(wc_order.shipping_lines)
 		):
 			if len(wc_order.shipping_lines) > 0:
-				# D'abord chercher par method_title
+				# First search by method_title
 				shipping_rule_mapping = next(
 					(
 						rule
@@ -494,7 +494,7 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 					None,
 				)
 				
-				# Si pas trouvé, chercher par method_id comme fallback
+				# If not found, search by method_id as fallback
 				if not shipping_rule_mapping:
 					shipping_rule_mapping = next(
 						(
@@ -510,7 +510,7 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 
 		self.set_items_in_sales_order(new_sales_order, wc_order)
 
-		# Ajouter les taxes sur les articles
+		# Add taxes on items
 		for tax in json.loads(wc_order.tax_lines):
 			tax_config = frappe.get_all(
 				"WooCommerce Taxes",
@@ -522,10 +522,10 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 			)
 
 			tax_account = tax_config[0].account if tax_config else wc_server.tax_account
-			# Utiliser directement le montant de la taxe de WooCommerce
+			# Use the tax amount from WooCommerce directly
 			add_tax_details(new_sales_order, float(tax.get("tax_total")), tax.get("label"), tax_account)
 
-		# Ajouter les taxes de livraison
+		# Add shipping taxes
 		tax_lines = json.loads(wc_order.tax_lines)
 		if tax_lines:
 			tax_line = tax_lines[0]
@@ -567,10 +567,10 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 				)
 			
 			shipping_tax_account = tax_config[0].account if tax_config else wc_server.tax_account
-			# Utiliser directement le montant de la taxe de livraison de WooCommerce
+			# Use the shipping tax amount from WooCommerce directly
 			add_tax_details(new_sales_order, float(tax_line.get("shipping_tax_total", 0)), f"Shipping {tax_label}", shipping_tax_account)
 
-		# Ajouter les frais de livraison
+		# Add shipping costs
 		shipping_lines = json.loads(wc_order.shipping_lines)
 		if shipping_lines:
 			shipping_line = shipping_lines[0]
@@ -581,20 +581,20 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 				wc_server.f_n_f_account
 			)
 
-		# Flags pour ignorer certaines validations
+		# Flags to ignore certain validations
 		new_sales_order.flags.ignore_mandatory = True
 		new_sales_order.flags.created_by_sync = True
 		new_sales_order.flags.ignore_version_check = True
 
 		try:
-			# Insertion de la commande
+			# Insert order
 			new_sales_order.insert()
 
-			# Calcul des taxes et totaux
+			# Calculate taxes and totals
 			new_sales_order.calculate_taxes_and_totals()
 			new_sales_order.reload()
 
-			# Calculer la différence d'arrondi après le calcul des taxes
+			# Calculate rounding difference after tax calculation
 			total_calculated = flt(new_sales_order.grand_total, 2)
 			rounding_outstanding = flt(wc_order.total, 2) - total_calculated
 			
@@ -602,7 +602,7 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 				new_sales_order.append("taxes", {
 					"charge_type": "Actual",
 					"account_head": wc_server.rounding_charge,
-					"description": "Arrondi prix",
+					"description": "Rounding difference",
 					"tax_amount": rounding_outstanding,
 					"cost_center": wc_server.cost_center
 				})
@@ -610,18 +610,18 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 				new_sales_order.save()
 
 			if wc_server.submit_sales_orders:
-				# Soumettre la commande
+				# Submit order
 				new_sales_order.submit()
 				frappe.db.commit()
 				new_sales_order.reload()
 
-				# Créer et lier l'entrée de paiement
+				# Create and link payment entry
 				if float(wc_order.total) > 0:
 					self.create_and_link_payment_entry(wc_order, new_sales_order)
 					new_sales_order.save()
 
 		except Exception as e:
-			frappe.log_error(f"Erreur lors de la création de la commande: {str(e)}")
+			frappe.log_error(f"Error while creating order: {str(e)}")
 			raise e
 
 	def create_missing_items(self, wc_order, items_list, woocommerce_site):
@@ -741,11 +741,11 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 						tax_account = tax_config[0].account if tax_config else wc_server.tax_account
 						add_tax_details(new_sales_order, ordered_items_tax, tax_label, tax_account)
 
-			# Gérer la taxe de livraison avec le bon compte de taxe
+			# Handle shipping tax with correct tax account
 			if float(wc_order.shipping_tax) > 0:
 				tax_lines = json.loads(wc_order.tax_lines)
 				if tax_lines:
-					# Prendre la première ligne de taxe car elle contient toutes les taxes
+					# Take first tax line as it contains all taxes
 					tax_line = tax_lines[0]
 					tax_id = tax_line.get("rate_id")
 					tax_name = tax_line.get("rate_code")
@@ -791,7 +791,7 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 				else:
 					add_tax_details(new_sales_order, float(wc_order.shipping_tax), "Shipping Tax", wc_server.tax_account)
 
-			# Ajouter le montant de la livraison (hors taxe) avec le compte f_n_f
+			# Add shipping cost (excluding tax) with f_n_f account
 			add_tax_details(
 				new_sales_order,
 				wc_order.shipping_total,
@@ -1091,7 +1091,7 @@ def create_contact(data, customer):
 
 
 def add_tax_details(sales_order, price, desc, tax_account_head):
-	# Rechercher une ligne de taxe existante avec le même compte
+	# Search for existing tax line with same account
 	existing_tax = next(
 		(tax for tax in sales_order.taxes or []
 		 if tax.account_head == tax_account_head and tax.description == desc),
@@ -1099,13 +1099,13 @@ def add_tax_details(sales_order, price, desc, tax_account_head):
 	)
 
 	if existing_tax:
-		# Si une ligne avec le même compte existe, ajouter le montant à cette ligne
+		# If line with same account exists, add amount to this line
 		existing_tax.tax_amount = float(price or 0)
 		existing_tax.total = existing_tax.total
 		existing_tax.base_tax_amount = existing_tax.tax_amount
 		existing_tax.base_total = existing_tax.total
 	else:
-		# Si aucune ligne n'existe, en créer une nouvelle
+		# If no line exists, create a new one
 		tax_row = sales_order.append(
 			"taxes",
 			{
@@ -1115,7 +1115,7 @@ def add_tax_details(sales_order, price, desc, tax_account_head):
 				"description": desc,
 			},
 		)
-		# Important : définir le total pour éviter le recalcul
+		# Important: set total to avoid recalculation
 		tax_row.total = sales_order.grand_total or 0
 		tax_row.base_total = tax_row.total
 
@@ -1138,8 +1138,8 @@ def create_placeholder_item(sales_order: SalesOrder):
 	if not frappe.db.exists("Item", "DELETED_WOOCOMMERCE_PRODUCT"):
 		item = frappe.new_doc("Item")
 		item.item_code = "DELETED_WOOCOMMERCE_PRODUCT"
-		item.item_name = "Deletet WooCommerce Product"
-		item.description = "Deletet WooCommerce Product"
+		item.item_name = "Deleted WooCommerce Product"
+		item.description = "Deleted WooCommerce Product"
 		item.item_group = "All Item Groups"
 		item.stock_uom = wc_server.uom
 		item.is_stock_item = 0

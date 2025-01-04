@@ -24,8 +24,8 @@ from woocommerce_fusion.woocommerce.woocommerce_api import (
 
 def safe_log_error(message: str, title: str = "WooCommerce Error", max_len: int = 140):
 	"""
-    Tronque le message de log si nécessaire pour éviter l'erreur
-    'CharacterLengthExceededError' dans ERPNext
+    Truncates the log message if necessary to avoid error
+    'CharacterLengthExceededError' in ERPNext
     """
 	if len(message) > max_len:
 		message = message[:max_len] + "... (truncated)"
@@ -152,7 +152,7 @@ def format_erpnext_img_url(image_details):
 
 def check_existing_file(filename: str, content_hash: str = None) -> str:
 	"""
-    Vérifie si un fichier existe déjà et retourne son URL
+    Checks if a file already exists and returns its URL
     """
 	filters = {"name": filename}
 	if content_hash:
@@ -169,14 +169,14 @@ def check_existing_file(filename: str, content_hash: str = None) -> str:
 
 
 def handle_file_upload(doc, method):
-	"""Hook avant l'insertion d'un fichier"""
+	"""Hook before file insertion"""
 	if doc.content_hash:
 		existing_url = check_existing_file(doc.file_name, doc.content_hash)
 		if existing_url:
 			doc.file_url = existing_url
 			return
 
-	# Si le nom existe mais hash différent, générer un nouveau nom
+	# If name exists but different hash, generate a new name
 	if frappe.db.exists("File", {"name": doc.file_name}):
 		doc.file_name = (
 			f"{doc.file_name.rsplit('.', 1)[0]}_{frappe.generate_hash()[:6]}"
@@ -231,7 +231,7 @@ class SynchroniseItem(SynchroniseWooCommerce):
 		self.woocommerce_product = woocommerce_product
 		self.settings = frappe.get_cached_doc("WooCommerce Integration Settings")
 
-		# Initialiser l'API WooCommerce ici
+		# Initialize WooCommerce API for the given server
 		if woocommerce_product and woocommerce_product.woocommerce_server:
 			self.init_wc_api(woocommerce_product.woocommerce_server)
 		elif item and item.item_woocommerce_server:
@@ -256,13 +256,13 @@ class SynchroniseItem(SynchroniseWooCommerce):
 			self.get_corresponding_item_or_product()
 			self.sync_wc_product_with_erpnext_item()
 		except Exception as err:
-			# Tronquer le message si trop long
+			# Truncate the message if too long
 			err_msg = (
 				f"{frappe.get_traceback()}\n\n"
 				f"Item Data: \n{str(self.item) if self.item else ''}\n\n"
 				f"WC Product Data \n{str(self.woocommerce_product.as_dict() if isinstance(self.woocommerce_product, WooCommerceProduct) else self.woocommerce_product)}"
 			)
-			safe_log_error(err_msg, "WooCommerce Error", max_len=1000)  # tronqué à 1000
+			safe_log_error(err_msg, "WooCommerce Error", max_len=1000)  # truncated to 1000
 			raise err
 
 	def get_corresponding_item_or_product(self):
@@ -295,7 +295,7 @@ class SynchroniseItem(SynchroniseWooCommerce):
 
 	def get_erpnext_item(self):
 		"""
-        Get erpnext item for a WooCommerce Product
+        Get ERPNext item for a WooCommerce Product
         """
 		if not all(
 				[self.woocommerce_product.woocommerce_server, self.woocommerce_product.woocommerce_id]
@@ -331,7 +331,7 @@ class SynchroniseItem(SynchroniseWooCommerce):
 
 	def sync_wc_product_with_erpnext_item(self):
 		"""
-        Syncronise Item between ERPNext and WooCommerce
+        Synchronize Item between ERPNext and WooCommerce
         """
 		if self.item and not self.woocommerce_product:
 			# create missing product in WooCommerce
@@ -368,18 +368,20 @@ class SynchroniseItem(SynchroniseWooCommerce):
 
 	def check_wc_image_exists(self, image_url: str):
 		"""
-		Vérifie si l'image existe déjà dans la bibliothèque de médias WordPress
+		Check if image already exists in WordPress media library
+
 		Args:
-			image_url: URL de l'image à vérifier
+			image_url: URL of image to check
+
 		Returns:
-			ID du média si trouvé, None sinon
+			Media ID if found, None otherwise
 		"""
 		from woocommerce_fusion.wordpress.media import get_img_id
 		
-		# Extraire le nom du fichier de l'URL
+		# Extract file name from URL
 		filename = image_url.split("/")[-1]
 		
-		# Récupérer le serveur WooCommerce
+		# Get WooCommerce server
 		wc_server = None
 		if self.woocommerce_product:
 			wc_server = frappe.get_cached_doc(
@@ -393,13 +395,13 @@ class SynchroniseItem(SynchroniseWooCommerce):
 		if not wc_server or not wc_server.enable_sync_wp:
 			return None
 			
-		# Rechercher l'image dans la bibliothèque média
+		# Search for image in media library
 		media = get_img_id(filename, server=wc_server)
 		return media.get("id") if media else None
 
 	def get_image_details(self, item, file_url):
 		"""
-        Récupère les détails d'une image à partir de ERPNext
+        Get image details from ERPNext
         """
 		return frappe.get_value(
 			"File",
@@ -414,8 +416,8 @@ class SynchroniseItem(SynchroniseWooCommerce):
 
 	def compare_and_update_images(self, wc_product: WooCommerceProduct, item: ERPNextItemToSync) -> dict:
 		"""
-        Compare et met à jour les images en évitant les duplications
-        et en gérant à la fois l'image principale et la galerie
+        Compare and update images avoiding duplications
+        and managing both main image and gallery
         """
 		try:
 			current_images = json.loads(wc_product.images) if wc_product.images else []
@@ -423,7 +425,7 @@ class SynchroniseItem(SynchroniseWooCommerce):
 			seen_urls = set()
 			has_changes = False
 
-			# Récupérer toutes les images attachées
+			# Get all attached images
 			attached_files = frappe.get_all(
 				"File",
 				filters={
@@ -435,7 +437,7 @@ class SynchroniseItem(SynchroniseWooCommerce):
 				order_by="creation",
 			)
 
-			# Filtrer pour ne garder que les images valides
+			# Filter for valid images
 			valid_extensions = (".jpg", ".jpeg", ".png", ".gif")
 			valid_files = [
 				f
@@ -452,12 +454,12 @@ class SynchroniseItem(SynchroniseWooCommerce):
 
 				seen_urls.add(image_url)
 
-				# 1. Vérifier dans les images actuelles du produit
+				# 1. Check in current product images
 				existing_image = next((img for img in current_images if img["src"] == image_url), None)
 				if existing_image:
 					return existing_image
 
-				# 2. Vérifier dans la bibliothèque média WordPress
+				# 2. Check in WordPress media library
 				media_id = self.check_wc_image_exists(image_url)
 				if media_id:
 					return {
@@ -466,40 +468,40 @@ class SynchroniseItem(SynchroniseWooCommerce):
 						"date_created": file_details.modified.isoformat(),
 					}
 
-				# 3. Créer une nouvelle entrée si on ne la trouve nulle part
+				# 3. Create new entry if not found anywhere
 				return {
 					"src": image_url,
 					"date_created": file_details.modified.isoformat(),
 				}
 
-			# Traiter d'abord l'image principale si elle existe
+			# Process main image first if it exists
 			if item.item.image:
 				main_image = next((f for f in valid_files if f.file_url == item.item.image), None)
 				if main_image:
 					main_image_data = process_image(main_image)
 					if main_image_data:
 						new_images.append(main_image_data)
-						# S’il n’y avait pas d’image principale avant
-						# ou si l’URL a changé, on considère qu’il y a changement
+						# If there was no main image before
+						# or if URL has changed, consider it as a change
 						has_changes = (
 								not current_images
 								or current_images[0]["src"] != main_image_data["src"]
 						)
 
-			# Traiter les autres images de la galerie
+			# Process other gallery images
 			for file_details in valid_files:
-				# Ignorer l'image principale déjà traitée
+				# Skip main image already processed
 				if file_details.file_url == item.item.image:
 					continue
 
 				image_data = process_image(file_details)
 				if image_data:
 					new_images.append(image_data)
-					has_changes = True  # on a ajouté une image
+					has_changes = True  # image was added
 
-			# Vérifier les changements globaux
+			# Check global changes
 			if not has_changes:
-				# Si la longueur diffère ou si une URL diffère
+				# If length differs or if a URL differs
 				has_changes = (
 						len(new_images) != len(current_images)
 						or any(
@@ -523,21 +525,21 @@ class SynchroniseItem(SynchroniseWooCommerce):
 
 	def update_woocommerce_product(self, wc_product: WooCommerceProduct, item: ERPNextItemToSync) -> None:
 		"""
-        Met à jour le produit WooCommerce avec gestion optimisée des images
+        Update WooCommerce product with optimized image management
         """
 		try:
-			# Recharger le document pour éviter les conflits de version
+			# Reload document to avoid version conflicts
 			wc_product.reload()
 			wc_product_dirty = False
 
-			# Mise à jour des images
+			# Update images
 			if item.item.image:
 				image_update = self.compare_and_update_images(wc_product, item)
 				if image_update["has_changes"]:
 					wc_product.images = json.dumps(image_update["images"])
 					wc_product_dirty = True
 
-			# Autres mises à jour
+			# Other updates
 			if wc_product.woocommerce_name != item.item.item_name:
 				wc_product.woocommerce_name = item.item.item_name
 				wc_product_dirty = True
@@ -550,7 +552,7 @@ class SynchroniseItem(SynchroniseWooCommerce):
 			if self.set_product_fields(wc_product, item):
 				wc_product_dirty = True
 
-			# Sauvegarder si nécessaire
+			# Save if necessary
 			if wc_product_dirty:
 				wc_product.flags.ignore_version = True
 				wc_product.save()
@@ -618,7 +620,7 @@ class SynchroniseItem(SynchroniseWooCommerce):
 				]
 				wc_product.attributes = json.dumps(wc_product_attributes)
 
-			# Image principale
+			# Main image
 			if item.item.image:
 				image_details = frappe.db.get_value(
 					"File",
@@ -688,7 +690,7 @@ class SynchroniseItem(SynchroniseWooCommerce):
 			)
 			item.variant_of = parent_item.item_code
 
-		# Définir item_code selon la config du Woocommerce Server
+		# Set item_code according to WooCommerce Server config
 		item.item_code = (
 			wc_product.sku
 			if wc_server.name_by == "Product SKU" and wc_product.sku
@@ -734,15 +736,15 @@ class SynchroniseItem(SynchroniseWooCommerce):
 						{"doctype": "Item Attribute", "attribute_name": wc_attribute["name"]}
 					)
 
-				# Dans un produit variable => "options" (liste)
-				# Dans un produit "variation" => "option" (unique)
+				# In a variable product => "options" (list)
+				# In a "variation" product => "option" (unique)
 				options = (
 					wc_attribute["options"]
 					if wc_product.type == "variable"
 					else [wc_attribute["option"]]
 				)
 
-				# Remplace ou met à jour les valeurs s’il y a un écart
+				# Replace or update values if there is a difference
 				existing_values = {val.attribute_value for val in item_attribute.item_attribute_values}
 				if existing_values != set(options):
 					item_attribute.item_attribute_values = []
@@ -759,8 +761,8 @@ class SynchroniseItem(SynchroniseWooCommerce):
 
 	def set_item_fields(self):
 		"""
-        Si des "Field Mappings" existent sur `WooCommerce Server`, on synchronise
-        leurs valeurs de WooCommerce => ERPNext
+        If "Field Mappings" exist on `WooCommerce Server`, synchronize
+        their values from WooCommerce => ERPNext
         """
 		if self.item and self.woocommerce_product:
 			wc_server = frappe.get_cached_doc(
@@ -783,10 +785,10 @@ class SynchroniseItem(SynchroniseWooCommerce):
 			self, woocommerce_product: WooCommerceProduct, item: ERPNextItemToSync
 	) -> bool:
 		"""
-        Si des "Field Mappings" existent sur `WooCommerce Server`, on synchronise
-        leurs valeurs de ERPNext => WooCommerce
+        If "Field Mappings" exist on `WooCommerce Server`, synchronize
+        their values from ERPNext => WooCommerce
 
-        Retourne True si le doc a été modifié
+        Returns True if the doc has been modified
         """
 		wc_product_dirty = False
 		if item and woocommerce_product:
@@ -806,9 +808,9 @@ class SynchroniseItem(SynchroniseWooCommerce):
 
 	def set_sync_hash(self):
 		"""
-        On enregistre la date de modification dans le champ "woocommerce_last_sync_hash"
-        sans passer par les triggers Frappe (pour éviter de toucher le timestamp
-        "modified" de l'Item WooCommerce Server).
+        Save the modification date in the "woocommerce_last_sync_hash" field
+        without going through Frappe triggers (to avoid touching the "modified"
+        timestamp of the Item WooCommerce Server).
         """
 		if self.item and self.woocommerce_product:
 			frappe.db.set_value(
@@ -819,7 +821,7 @@ class SynchroniseItem(SynchroniseWooCommerce):
 				update_modified=False,
 			)
 
-			# On s'assure que l'Item est activé pour la synchro
+			# Make sure the Item is enabled for sync
 			frappe.db.set_value(
 				"Item WooCommerce Server",
 				self.item.item_woocommerce_server.name,
@@ -833,8 +835,8 @@ def get_list_of_wc_products(
 		item: Optional[ERPNextItemToSync] = None, date_time_from: Optional[datetime] = None
 ) -> List[WooCommerceProduct]:
 	"""
-    Récupère les produits WooCommerce selon un range de dates
-    ou liés à un Item précis. Minimum un des deux paramètres requis.
+    Get list of WooCommerce products according to a date range
+    or linked to a specific Item. At least one of the two parameters is required.
     """
 	if not any([date_time_from, item]):
 		raise ValueError("At least one of date_time_from or item parameters are required")
@@ -876,7 +878,7 @@ def get_list_of_wc_products(
 
 def get_item_price_rate(item: ERPNextItemToSync):
 	"""
-    Retourne le prix de l'Item s'il existe et si la synchro de liste de prix est activée
+    Return the price of the Item if it exists and if price list sync is enabled
     """
 	wc_server = frappe.get_cached_doc(
 		"WooCommerce Server", item.item_woocommerce_server.woocommerce_server
@@ -899,7 +901,7 @@ def get_item_price_rate(item: ERPNextItemToSync):
 
 def clear_sync_hash_and_run_item_sync(item_code: str):
 	"""
-    Efface le dernier hash de synchro pour relancer la synchro
+    Clear the last sync hash to trigger sync again
     """
 	iws = frappe.qb.DocType("Item WooCommerce Server")
 

@@ -6,25 +6,25 @@ class WordpressMedia(WordpressAPI):
 		super(WordpressMedia, self).__init__(server=server, version=version, *args, **kwargs)
 
 	def get_list(self, params={}):
-		"""Récupère la liste des médias avec pagination"""
+		"""Get the list of media with pagination"""
 		return self.get("media", params=params)
 
 	def create_img(self, data, headers={}):
-		"""Crée une nouvelle image dans la bibliothèque média"""
+		"""Create a new image in the media library"""
 		return self.post("media", files=data, headers=headers).json()
 
 	def delete_img(self, media_id):
-		"""Supprime une image de la bibliothèque média"""
+		"""Delete an image from the media library"""
 		return self.delete(f"media/{media_id}", params={"force": True})
 
 def get_img_id(name, server=None):
 	"""
-	Recherche une image par son nom dans la bibliothèque média
+	Search for an image by name in the media library
 	Args:
-		name: Nom de l'image à rechercher
-		server: Instance du serveur WooCommerce (optionnel)
+		name: Name of the image to search for
+		server: WooCommerce server instance (optional)
 	Returns:
-		Premier média trouvé ou liste vide
+		First media found or empty list
 	"""
 	wp_api = WordpressMedia(server=server)
 	response = wp_api.get_list({"search": name})
@@ -35,25 +35,25 @@ def get_img_id(name, server=None):
 
 def create_image(data, server=None, headers={}):
 	"""
-	Crée une nouvelle image dans la bibliothèque média
+	Create a new image in the media library
 	Args:
-		data: Données de l'image (fichier)
-		server: Instance du serveur WooCommerce (optionnel)
-		headers: En-têtes HTTP additionnels
+		data: Image data (file)
+		server: WooCommerce server instance (optional)
+		headers: Additional HTTP headers
 	Returns:
-		Réponse de l'API WordPress
+		WordPress API response
 	"""
 	wp_api = WordpressMedia(server=server)
 	return wp_api.create_img(data, headers)
 
 def delete_image(media_id, server=None):
 	"""
-	Supprime une image de la bibliothèque média
+	Delete an image from the media library
 	Args:
-		media_id: ID du média à supprimer
-		server: Instance du serveur WooCommerce (optionnel)
+		media_id: ID of the media to delete
+		server: WooCommerce server instance (optional)
 	Returns:
-		Réponse de l'API WordPress
+		WordPress API response
 	"""
 	wp_api = WordpressMedia(server=server)
 	return wp_api.delete_img(media_id)
