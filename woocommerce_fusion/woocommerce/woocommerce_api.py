@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 import frappe
 from frappe import _
 from frappe.model.document import Document
+from frappe.utils import flt
 
 from woocommerce_fusion.exceptions import SyncDisabledError
 from woocommerce_fusion.tasks.utils import APIWithRequestLogging
@@ -442,24 +443,203 @@ class WooCommerceResource(Document):
 
 		return fields
 
+	def get_taxes(self, wc_api):
+		"""Get all taxes from WooCommerce"""
+		return wc_api.api.get("taxes").json()
 
-def generate_woocommerce_record_name_from_domain_and_id(
-	domain: str, resource_id: int, delimiter: str = WC_RESOURCE_DELIMITER
-) -> str:
+	def sync_taxes(self):
+		"""Sync taxes from WooCommerce to ERPNext"""
+		if not self.wc_api_list:
+			self.wc_api_list = self._init_api()
+
+		for wc_api in self.wc_api_list:
+			try:
+				# Get taxes from WooCommerce
+				wc_taxes = self.get_taxes(wc_api)
+				
+				# Create or update taxes in ERPNext
+				for wc_tax in wc_taxes:
+					tax_rate = flt(wc_tax.get("rate"))
+					country = wc_tax.get("country")
+					name = wc_tax.get("name")
+					
+					# Check if tax already exists
+					existing_taxes = frappe.get_all(
+						"WooCommerce Taxes",
+						filters={
+							"woocommerce_tax_id": wc_tax.get("id"),
+							"woocommerce_server": wc_api.woocommerce_server
+						}
+					)
+
+					if existing_taxes:
+						# Update existing tax
+						tax_doc = frappe.get_doc("WooCommerce Taxes", existing_taxes[0].name)
+						tax_doc.tax_rate = tax_rate
+						tax_doc.country = country
+						tax_doc.tax_name = name
+						tax_doc.save()
+					else:
+						# Create new tax
+						tax_doc = frappe.get_doc({
+							"doctype": "WooCommerce Taxes",
+							"woocommerce_tax_id": wc_tax.get("id"),
+							"woocommerce_server": wc_api.woocommerce_server,
+							"tax_rate": tax_rate,
+							"country": country,
+							"tax_name": name
+						})
+						tax_doc.insert()
+
+				frappe.db.commit()
+				return {"message": "Taxes synchronized successfully"}
+
+			except Exception as e:
+				frappe.log_error(f"WooCommerce Tax Sync Error: {str(e)}")
+				return {"error": str(e)}
+
+@frappe.whitelist()
+def sync_woocommerce_taxes(woocommerce_server):
+	"""Endpoint to sync WooCommerce taxes"""
+	try:
+		server = frappe.get_doc("WooCommerce Server", woocommerce_server)
+		wc_api = APIWithRequestLogging(
+			url=server.woocommerce_server_url,
+			consumer_key=server.api_consumer_key,
+			consumer_secret=server.api_consumer_secret,
+			version="wc/v3",
+			timeout=40,
+		)
+		
+		# Get taxes from WooCommerce with pagination
+		page = 1
+		per_page = 100
+		taxes_list = []
+		
+		while True:
+			# Get taxes with pagination parameters
+			response = wc_api.get("taxes", params={"page": page, "per_page": per_page}).json()
+			if not response:
+				break
+				
+			# Format taxes for display
+			for wc_tax in response:
+				taxes_list.append({
+					"woocommerce_tax_id": wc_tax.get("id"),
+					"woocommerce_tax_name": wc_tax.get("name"),
+					"country": wc_tax.get("country"),
+					"state": wc_tax.get("state", ""),
+					"rate": wc_tax.get("rate"),
+					"tax_class": wc_tax.get("class", "standard"),
+					"priority": wc_tax.get("priority", 1),
+					"compound": wc_tax.get("compound", 0),
+					"shipping": wc_tax.get("shipping", 1)
+				})
+			
+			if len(response) < per_page:
+				break
+				
+			page += 1
+
+		return {
+			"message": f"Found {len(taxes_list)} taxes from WooCommerce",
+			"taxes": taxes_list,
+			"default_tax_account": server.tax_account
+		}
+
+	except Exception as e:
+		frappe.log_error(f"WooCommerce Tax Sync Error: {str(e)}")
+		return {"error": str(e)}
+
+@frappe.whitelist()
+def update_woocommerce_taxes(woocommerce_server, taxes):
+	"""Update tax information in WooCommerce"""
+	try:
+		if isinstance(taxes, str):
+			taxes = json.loads(taxes)
+			
+		server = frappe.get_doc("WooCommerce Server", woocommerce_server)
+		wc_api = APIWithRequestLogging(
+			url=server.woocommerce_server_url,
+			consumer_key=server.api_consumer_key,
+			consumer_secret=server.api_consumer_secret,
+			version="wc/v3",
+			timeout=40,
+		)
+		
+		updated_count = 0
+		for tax in taxes:
+			try:
+				# Update tax in WooCommerce
+				response = wc_api.put(f"taxes/{tax['woocommerce_tax_id']}", {
+					"name": tax['woocommerce_tax_name'],
+					"country": tax['country'],
+					"state": tax.get('state', ''),
+					"rate": str(tax['rate']),
+					"class": tax.get('tax_class', 'standard'),
+					"priority": tax.get('priority', 1),
+					"compound": tax.get('compound', 0),
+					"shipping": tax.get('shipping', 1)
+				}).json()
+				
+				if response and response.get('id'):
+					updated_count += 1
+					
+			except Exception as e:
+				frappe.log_error(f"Error updating tax {tax['woocommerce_tax_id']}: {str(e)}")
+				continue
+		
+		return {
+			"message": f"Successfully updated {updated_count} taxes in WooCommerce"
+		}
+
+	except Exception as e:
+		frappe.log_error(f"WooCommerce Tax Update Error: {str(e)}")
+		return {"error": str(e)}
+
+@frappe.whitelist()
+def get_tax_classes(woocommerce_server):
+    """Get available tax classes from WooCommerce"""
+    try:
+        wc_api = APIWithRequestLogging(
+			url=frappe.get_doc("WooCommerce Server", woocommerce_server).woocommerce_server_url,
+			consumer_key=frappe.get_doc("WooCommerce Server", woocommerce_server).api_consumer_key,
+			consumer_secret=frappe.get_doc("WooCommerce Server", woocommerce_server).api_consumer_secret,
+			version="wc/v3",
+			timeout=40,
+		)
+        # Get all available tax classes
+        response = wc_api.get("taxes/classes").json()
+        
+        # Get all slugs from available classes
+        classes = set()
+        for tax_class in response:
+            if tax_class.get("slug"):
+                classes.add(tax_class["slug"])
+        
+        return "\n".join(sorted(classes))
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "WooCommerce Get Tax Classes Error")
+        return ""  # Return empty if error
+
+def parse_domain_from_url(url: str):
+	return urlparse(url).netloc
+
+def get_domain_and_id_from_woocommerce_record_name(
+	name: str, delimiter: str = WC_RESOURCE_DELIMITER
+) -> Tuple[str, int]:
 	"""
-	Generate a name for a woocommerce resource, based on domain and resource_id.
+	Get domain and record_id from woocommerce_order name
 
-	E.g. "site1.example.com~11"
+	E.g. "site1.example.com~11" returns "site1.example.com" and 11
 	"""
-	return "{domain}{delimiter}{resource_id}".format(
-		domain=domain, delimiter=delimiter, resource_id=str(resource_id)
-	)
-
+	domain, record_id = name.split(delimiter)
+	return domain, int(record_id)
 
 def get_wc_parameters_from_filters(filters):
 	"""
 	http://woocommerce.github.io/woocommerce-rest-api-docs/#list-all-orders
-	https://woocommerce.github.io/woocommerce-rest-api-docs/#list-all-products
+	http://woocommerce.github.io/woocommerce-rest-api-docs/#list-all-products
 	"""
 	supported_filter_fields = [
 		"date_created",
@@ -535,20 +715,14 @@ def log_and_raise_error(exception=None, error_text=None, response=None):
 		raise exception
 
 
-def parse_domain_from_url(url: str):
-	domain = urlparse(url).netloc
-	if not domain:
-		raise ValueError(_("Invalid server URL"))
-	return domain
-
-
-def get_domain_and_id_from_woocommerce_record_name(
-	name: str, delimiter: str = WC_RESOURCE_DELIMITER
-) -> Tuple[str, int]:
+def generate_woocommerce_record_name_from_domain_and_id(
+	domain: str, resource_id: int, delimiter: str = WC_RESOURCE_DELIMITER
+) -> str:
 	"""
-	Get domain and record_id from woocommerce_order name
+	Generate a name for a woocommerce resource, based on domain and resource_id.
 
-	E.g. "site1.example.com~11" returns "site1.example.com" and 11
+	E.g. "site1.example.com~11"
 	"""
-	domain, record_id = name.split(delimiter)
-	return domain, int(record_id)
+	return "{domain}{delimiter}{resource_id}".format(
+		domain=domain, delimiter=delimiter, resource_id=str(resource_id)
+	)

@@ -14,6 +14,10 @@
   "column_break_ikke",
   "api_consumer_key",
   "api_consumer_secret",
+  "section_break_word",
+  "enable_sync_wp",
+  "api_user_wp",
+  "api_application_code_wp",
   "section_details_defaults",
   "creation_user",
   "column_break_14",
@@ -36,15 +40,21 @@
   "uom",
   "section_break_accounting",
   "tax_account",
+  "rounding_charge",
   "use_actual_tax_type",
   "sales_taxes_and_charges_template",
   "column_break_4b4vn",
   "f_n_f_account",
+  "section_break_jmba",
+  "woocommerce_taxes",
   "section_payments_sync",
   "enable_payments_sync",
   "ignore_date_paid",
+  "auto_create_invoice",
+  "cost_center",
   "payment_method_bank_account_mapping",
   "payment_method_gl_account_mapping",
+  "payment_method_fee_account_mapping",
   "section_addresses",
   "address_title_convention",
   "shipping_methods_sync_section",
@@ -57,6 +67,7 @@
   "tab_items",
   "item_section",
   "name_by",
+  "default_product_status",
   "item_stock_section",
   "enable_stock_level_synchronisation",
   "warehouses",
@@ -95,9 +106,17 @@
    "depends_on": "eval: doc.use_actual_tax_type;",
    "fieldname": "tax_account",
    "fieldtype": "Link",
-   "label": "Tax Account",
+   "label": "Tax Account default",
    "mandatory_depends_on": "eval: doc.use_actual_tax_type;",
    "options": "Account"
+  },
+  {
+   "fieldname": "rounding_charge",
+   "fieldtype": "Link",
+   "label": "Rounding Charge Account",
+   "options": "Account",
+   "reqd": 1,
+   "description": "Account used for rounding differences between WooCommerce and ERPNext"
   },
   {
    "fieldname": "column_break_4b4vn",
@@ -109,6 +128,17 @@
    "label": "Freight and Forwarding Account",
    "options": "Account",
    "reqd": 1
+  },
+  {
+   "fieldname": "section_break_jmba",
+   "fieldtype": "Section Break"
+  },
+  {
+   "depends_on": "eval: doc.use_actual_tax_type;",
+   "fieldname": "woocommerce_taxes",
+   "fieldtype": "Table",
+   "label": "WooCommerce Taxes",
+   "options": "WooCommerce Taxes"
   },
   {
    "description": "The user that will be used to create Customers, Items and Sales Orders. This user should have the relevant permissions.",
@@ -225,6 +255,29 @@
    "reqd": 1
   },
   {
+   "fieldname": "section_break_word",
+   "fieldtype": "Section Break",
+   "label": "WordPress API Configuration"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_sync_wp",
+   "fieldtype": "Check",
+   "label": "Enable WordPress API"
+  },
+  {
+   "depends_on": "eval:doc.enable_sync_wp",
+   "fieldname": "api_user_wp",
+   "fieldtype": "Data",
+   "label": "WordPress User"
+  },
+  {
+   "depends_on": "eval:doc.enable_sync_wp",
+   "fieldname": "api_application_code_wp",
+   "fieldtype": "Data",
+   "label": "WordPress Application Code"
+  },
+  {
    "default": "0",
    "fieldname": "wc_plugin_advanced_shipment_tracking",
    "fieldtype": "Check",
@@ -248,6 +301,20 @@
    "label": "Payment Entries Sync"
   },
   {
+   "default": "0",
+   "depends_on": "eval: doc.enable_payments_sync === 1",
+   "fieldname": "auto_create_invoice",
+   "fieldtype": "Check",
+   "label": "Automatically Create Sales Invoice on Payment"
+  },
+  {
+   "description": "Default cost center for payment entries and deductions",
+   "fieldname": "cost_center",
+   "fieldtype": "Link",
+   "label": "Default Cost Center",
+   "options": "Cost Center"
+  },
+  {
    "default": "{}",
    "depends_on": "eval: doc.enable_payments_sync === 1",
    "fieldname": "payment_method_bank_account_mapping",
@@ -260,6 +327,13 @@
    "fieldname": "payment_method_gl_account_mapping",
    "fieldtype": "JSON",
    "label": "Map GL Accounts to Payment Methods"
+  },
+  {
+   "default": "{}",
+   "depends_on": "eval: doc.enable_payments_sync === 1",
+   "fieldname": "payment_method_fee_account_mapping",
+   "fieldtype": "JSON",
+   "label": "Map Fee Accounts to Payment Methods"
   },
   {
    "fieldname": "section_break_hnji",
@@ -377,6 +451,14 @@
    "label": "Synchronise Sales Order Line changes back"
   },
   {
+   "default": "draft",
+   "description": "Default status for newly created products in WooCommerce",
+   "fieldname": "default_product_status",
+   "fieldtype": "Select",
+   "label": "Default Product Status",
+   "options": "draft\npublish\nprivate"
+  },
+  {
    "fieldname": "item_section",
    "fieldtype": "Section Break"
   },
@@ -476,7 +558,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2024-12-19 22:11:00.798398",
+ "modified": "2025-01-03 12:28:22.848120",
  "modified_by": "Administrator",
  "module": "WooCommerce",
  "name": "WooCommerce Server",

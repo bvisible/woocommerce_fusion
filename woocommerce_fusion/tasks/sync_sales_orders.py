@@ -3,9 +3,11 @@ from datetime import datetime
 from typing import Dict, Optional
 
 import frappe
-from erpnext.selling.doctype.sales_order.sales_order import SalesOrder
+from erpnext.selling.doctype.sales_order.sales_order import SalesOrder, make_sales_invoice, make_delivery_note
+from erpnext.accounts.doctype.payment_entry.payment_entry import get_payment_entry
+
 from frappe import _
-from frappe.utils import get_datetime
+from frappe.utils import get_datetime, flt
 from frappe.utils.data import cstr, now
 
 from woocommerce_fusion.exceptions import SyncDisabledError
@@ -138,7 +140,7 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 			self.get_corresponding_sales_order_or_woocommerce_order()
 			self.sync_wc_order_with_erpnext_order()
 		except Exception as err:
-			error_message = f"{frappe.get_traceback()}\n\nSales Order Data: \n{str(self.sales_order.as_dict()) if self.sales_order else ''}\n\nWC Product Data \n{str(self.woocommerce_order.as_dict()) if self.woocommerce_order else ''})"
+			error_message = f"{frappe.get_traceback()}\n\nSales Order Data: \n{str(self.sales_order.as_dict()) if self.sales_order else ''}\n\nWC Product Data \n{str(self.woocommerce_order.as_dict()) if self.woocommerce_order else ''}"
 			frappe.log_error("WooCommerce Error", error_message)
 			raise err
 
@@ -253,100 +255,133 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 				sales_order.flags.created_by_sync = True
 				sales_order.save()
 
-	def create_and_link_payment_entry(
-		self, wc_order: WooCommerceOrder, sales_order: SalesOrder
-	) -> bool:
+	def create_and_link_payment_entry(self, wc_order: WooCommerceOrder, sales_order: SalesOrder) -> bool:
 		"""
 		Create a Payment Entry for a WooCommerce Order that has been marked as Paid
 		"""
-		wc_server = frappe.get_cached_doc("WooCommerce Server", sales_order.woocommerce_server)
-		if not wc_server:
-			raise ValueError("Could not find woocommerce_server in list of servers")
+		try:
+			if not sales_order.grand_total or sales_order.grand_total <= 0:
+				frappe.log_error(f"La commande {sales_order.name} n'a pas de montant valide")
+				return False
 
-		# Validate that WooCommerce order has been paid, and that sales order doesn't have a linked Payment Entry yet
-		if (
-			wc_server.enable_payments_sync
-			and wc_order.payment_method
-			and ((wc_server.ignore_date_paid) or (not wc_server.ignore_date_paid and wc_order.date_paid))
-			and not sales_order.woocommerce_payment_entry
-			and sales_order.docstatus == 1
-		):
-			# Get Company Bank Account for this Payment Method
+			if sales_order.docstatus != 1:
+				frappe.log_error(f"La commande {sales_order.name} n'est pas soumise")
+				return False
+
+			wc_server = frappe.get_cached_doc("WooCommerce Server", sales_order.woocommerce_server)
+			if not wc_server:
+				raise ValueError("Could not find woocommerce_server in list of servers")
+
+			if not (
+					wc_server.enable_payments_sync
+					and wc_order.payment_method
+					and ((wc_server.ignore_date_paid) or (not wc_server.ignore_date_paid and wc_order.date_paid))
+					and not sales_order.woocommerce_payment_entry
+					and sales_order.docstatus == 1
+			):
+				return False
+
 			payment_method_bank_account_mapping = json.loads(wc_server.payment_method_bank_account_mapping)
+			company_bank_account = payment_method_bank_account_mapping.get(wc_order.payment_method)
 
-			if wc_order.payment_method not in payment_method_bank_account_mapping:
-				raise KeyError(
-					f"WooCommerce payment method {wc_order.payment_method} not found in WooCommerce Server"
-				)
+			if not company_bank_account:
+				raise KeyError(f"WooCommerce payment method {wc_order.payment_method} not found in WooCommerce Server")
 
-			company_bank_account = payment_method_bank_account_mapping[wc_order.payment_method]
+			payment_method_gl_account_mapping = json.loads(wc_server.payment_method_gl_account_mapping)
+			paid_to_account = payment_method_gl_account_mapping.get(wc_order.payment_method)
 
-			if company_bank_account:
-				# Get G/L Account for this Payment Method
-				payment_method_gl_account_mapping = json.loads(wc_server.payment_method_gl_account_mapping)
-				company_gl_account = payment_method_gl_account_mapping[wc_order.payment_method]
+			if not paid_to_account:
+				raise KeyError(f"No G/L account mapped for payment method {wc_order.payment_method}")
 
-				# Create a new Payment Entry
-				company = frappe.get_value("Account", company_gl_account, "company")
-				meta_data = wc_order.get("meta_data", None)
+			stripe_net_amount = float(wc_order.total)
+			stripe_details = {}
 
-				# Attempt to get Payfast Transaction ID
-				payment_reference_no = wc_order.get("transaction_id", None)
-
-				# Attempt to get Yoco Transaction ID
-				if not payment_reference_no:
-					payment_reference_no = (
-						next(
-							(data["value"] for data in meta_data if data["key"] == "yoco_order_payment_id"),
-							None,
-						)
-						if meta_data and type(meta_data) is list
-						else None
-					)
-
-				# Determine if the reference should be Sales Order or Sales Invoice
-				reference_doctype = "Sales Order"
-				reference_name = sales_order.name
-				total_amount = sales_order.grand_total
-				if sales_order.per_billed > 0:
-					si_item_details = frappe.get_all(
-						"Sales Invoice Item",
-						fields=["name", "parent"],
-						filters={"sales_order": sales_order.name},
-					)
-					if len(si_item_details) > 0:
-						reference_doctype = "Sales Invoice"
-						reference_name = si_item_details[0].parent
-						total_amount = sales_order.grand_total
-
-				# Create Payment Entry
-				payment_entry_dict = {
-					"company": company,
-					"payment_type": "Receive",
-					"reference_no": payment_reference_no or wc_order.payment_method_title,
-					"reference_date": wc_order.date_paid or sales_order.transaction_date,
-					"party_type": "Customer",
-					"party": sales_order.customer,
-					"posting_date": wc_order.date_paid or sales_order.transaction_date,
-					"paid_amount": float(wc_order.total),
-					"received_amount": float(wc_order.total),
-					"bank_account": company_bank_account,
-					"paid_to": company_gl_account,
+			if wc_order.payment_method == "stripe":
+				meta_data_list = json.loads(wc_order.get("meta_data", "[]"))
+				stripe_details = {
+					meta["key"]: meta["value"]
+					for meta in meta_data_list
+					if meta.get("key") in ["_stripe_fee", "_stripe_net", "_stripe_charge_captured"]
 				}
-				payment_entry = frappe.new_doc("Payment Entry")
-				payment_entry.update(payment_entry_dict)
-				row = payment_entry.append("references")
-				row.reference_doctype = reference_doctype
-				row.reference_name = reference_name
-				row.total_amount = total_amount
-				row.allocated_amount = total_amount
-				payment_entry.save()
 
-				# Link created Payment Entry to Sales Order
-				sales_order.woocommerce_payment_entry = payment_entry.name
+				if not stripe_details.get("_stripe_charge_captured") or stripe_details["_stripe_charge_captured"] != "yes":
+					frappe.log_error(f"Paiement Stripe non capturé pour {sales_order.name}")
+					return False
 
+				if stripe_details.get("_stripe_net"):
+					stripe_net_amount = flt(stripe_details.get("_stripe_net"))
+
+			# Créer la facture d'abord si l'option est activée
+			sales_invoice = None
+			if wc_server.auto_create_invoice:
+				sales_invoice = make_sales_invoice(sales_order.name)
+				if wc_server.cost_center:
+					sales_invoice.cost_center = wc_server.cost_center
+					for item in sales_invoice.items:
+						item.cost_center = wc_server.cost_center
+				sales_invoice.posting_date = wc_order.date_paid or frappe.utils.today()
+				sales_invoice.due_date = sales_invoice.posting_date
+				sales_invoice.save()
+				sales_invoice.submit()
+				frappe.db.commit()
+
+			# Créer le paiement
+			payment_entry = get_payment_entry(
+				dt="Sales Order" if not sales_invoice else "Sales Invoice",
+				dn=sales_order.name if not sales_invoice else sales_invoice.name,
+				bank_account=company_bank_account,
+				bank_amount=stripe_net_amount,
+				reference_date=wc_order.date_paid or sales_order.transaction_date
+			)
+
+			payment_entry.paid_to = paid_to_account
+			payment_entry.paid_to_account_currency = frappe.db.get_value("Account", paid_to_account, "account_currency")
+
+			if wc_order.payment_method == "stripe" and stripe_details.get("_stripe_fee"):
+				payment_method_fee_account_mapping = json.loads(wc_server.payment_method_fee_account_mapping)
+				fee_account = payment_method_fee_account_mapping.get(wc_order.payment_method)
+
+				if fee_account:
+					stripe_fee = float(stripe_details.get("_stripe_fee", 0))
+					stripe_net = float(stripe_details.get("_stripe_net", 0))
+					
+					# Mettre à jour le montant payé et reçu avec le montant net Stripe
+					payment_entry.update({
+						"paid_amount": stripe_net,
+						"received_amount": stripe_net
+					})
+
+					# Ajouter les frais Stripe comme déduction
+					payment_entry.append("deductions", {
+						"account": fee_account,
+						"cost_center": wc_server.cost_center or frappe.db.get_value("Company", payment_entry.company, "cost_center"),
+						"amount": stripe_fee
+					})
+
+			payment_entry.reference_no = wc_order.get("transaction_id") or next(
+				(data["value"] for data in json.loads(wc_order.get("meta_data", "[]"))
+				 if data["key"] == "yoco_order_payment_id"),
+				wc_order.payment_method_title
+			)
+
+			payment_entry.set_exchange_rate()
+			payment_entry.set_amounts()
+
+			payment_entry.save()
+			payment_entry.submit()
+			frappe.db.commit()
+
+			sales_order.reload()
+			sales_order.woocommerce_payment_entry = payment_entry.name
 			sales_order.custom_attempted_woocommerce_auto_payment_entry = 1
+			sales_order.save()
+			frappe.db.commit()
+
 			return True
+
+		except Exception as e:
+			frappe.log_error(f"Erreur lors de la création du paiement: {str(e)}")
+			return False
 
 	@staticmethod
 	def update_woocommerce_order(wc_order: WooCommerceOrder, sales_order: SalesOrder) -> None:
@@ -427,7 +462,8 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 		wc_server = frappe.get_cached_doc("WooCommerce Server", wc_order.woocommerce_server)
 
 		new_sales_order.woocommerce_server = wc_order.woocommerce_server
-		# Set the payment_method_title field if necessary, use the payment method ID if the title field is too long
+		# Set the payment_method_title field if necessary, use the payment method ID
+		# if the title field is too long
 		payment_method = (
 			wc_order.payment_method_title
 			if len(wc_order.payment_method_title) < 140
@@ -441,30 +477,334 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 		new_sales_order.company = wc_server.company
 		new_sales_order.currency = wc_order.currency
 
+		# Désactiver l'arrondi des totaux pour correspondre exactement aux montants WooCommerce
+		new_sales_order.disable_rounded_total = 1
+
 		if (wc_server.enable_shipping_methods_sync) and (
-			shipping_lines := json.loads(wc_order.shipping_lines)
+				shipping_lines := json.loads(wc_order.shipping_lines)
 		):
 			if len(wc_order.shipping_lines) > 0:
+				# D'abord chercher par method_title
 				shipping_rule_mapping = next(
 					(
 						rule
 						for rule in wc_server.shipping_rule_map
-						if rule.wc_shipping_method_id == shipping_lines[0]["method_id"]
+						if rule.wc_shipping_method_title == shipping_lines[0]["method_title"]
 					),
 					None,
 				)
-				new_sales_order.shipping_rule = shipping_rule_mapping.shipping_rule
+				
+				# Si pas trouvé, chercher par method_id comme fallback
+				if not shipping_rule_mapping:
+					shipping_rule_mapping = next(
+						(
+							rule
+							for rule in wc_server.shipping_rule_map
+							if rule.wc_shipping_method_id == shipping_lines[0]["method_id"]
+						),
+						None,
+					)
+					
+				if shipping_rule_mapping:
+					new_sales_order.shipping_rule = shipping_rule_mapping.shipping_rule
 
 		self.set_items_in_sales_order(new_sales_order, wc_order)
+
+		# Ajouter les taxes sur les articles
+		for tax in json.loads(wc_order.tax_lines):
+			tax_config = frappe.get_all(
+				"WooCommerce Taxes",
+				filters={
+					"parent": wc_server.name,
+					"woocommerce_tax_id": tax.get("rate_id")
+				},
+				fields=["account"]
+			)
+
+			tax_account = tax_config[0].account if tax_config else wc_server.tax_account
+			# Utiliser directement le montant de la taxe de WooCommerce
+			add_tax_details(new_sales_order, float(tax.get("tax_total")), tax.get("label"), tax_account)
+
+		# Ajouter les taxes de livraison
+		tax_lines = json.loads(wc_order.tax_lines)
+		if tax_lines:
+			tax_line = tax_lines[0]
+			tax_id = tax_line.get("rate_id")
+			tax_name = tax_line.get("rate_code")
+			tax_label = tax_line.get("label")
+			
+			tax_config = frappe.get_all(
+				"WooCommerce Taxes",
+				filters={
+					"parent": wc_server.name,
+					"woocommerce_tax_id": tax_id
+				},
+				fields=["account"]
+			)
+			
+			if not tax_config:
+				tax_config = frappe.get_all(
+					"WooCommerce Taxes",
+					filters={
+						"parent": wc_server.name,
+						"woocommerce_tax_name": tax_name
+					},
+					fields=["account"]
+				)
+			
+			# If still not found, try by country
+			if not tax_config:
+				billing_data = json.loads(wc_order.billing)
+				country_code = billing_data.get("country", "")
+				
+				tax_config = frappe.get_all(
+					"WooCommerce Taxes",
+					filters={
+						"parent": wc_server.name,
+						"country": country_code
+					},
+					fields=["account"]
+				)
+			
+			shipping_tax_account = tax_config[0].account if tax_config else wc_server.tax_account
+			# Utiliser directement le montant de la taxe de livraison de WooCommerce
+			add_tax_details(new_sales_order, float(tax_line.get("shipping_tax_total", 0)), f"Shipping {tax_label}", shipping_tax_account)
+
+		# Ajouter les frais de livraison
+		shipping_lines = json.loads(wc_order.shipping_lines)
+		if shipping_lines:
+			shipping_line = shipping_lines[0]
+			add_tax_details(
+				new_sales_order,
+				float(shipping_line.get("total")),
+				f"Shipping Total",
+				wc_server.f_n_f_account
+			)
+
+		# Flags pour ignorer certaines validations
 		new_sales_order.flags.ignore_mandatory = True
 		new_sales_order.flags.created_by_sync = True
-		new_sales_order.insert()
-		if wc_server.submit_sales_orders:
-			new_sales_order.submit()
+		new_sales_order.flags.ignore_version_check = True
 
-		new_sales_order.reload()
-		self.create_and_link_payment_entry(wc_order, new_sales_order)
-		new_sales_order.save()
+		try:
+			# Insertion de la commande
+			new_sales_order.insert()
+
+			# Calcul des taxes et totaux
+			new_sales_order.calculate_taxes_and_totals()
+			new_sales_order.reload()
+
+			# Calculer la différence d'arrondi après le calcul des taxes
+			total_calculated = flt(new_sales_order.grand_total, 2)
+			rounding_outstanding = flt(wc_order.total, 2) - total_calculated
+			
+			if abs(flt(rounding_outstanding, 2)) > 0:
+				new_sales_order.append("taxes", {
+					"charge_type": "Actual",
+					"account_head": wc_server.rounding_charge,
+					"description": "Arrondi prix",
+					"tax_amount": rounding_outstanding,
+					"cost_center": wc_server.cost_center
+				})
+				new_sales_order.calculate_taxes_and_totals()
+				new_sales_order.save()
+
+			if wc_server.submit_sales_orders:
+				# Soumettre la commande
+				new_sales_order.submit()
+				frappe.db.commit()
+				new_sales_order.reload()
+
+				# Créer et lier l'entrée de paiement
+				if float(wc_order.total) > 0:
+					self.create_and_link_payment_entry(wc_order, new_sales_order)
+					new_sales_order.save()
+
+		except Exception as e:
+			frappe.log_error(f"Erreur lors de la création de la commande: {str(e)}")
+			raise e
+
+	def create_missing_items(self, wc_order, items_list, woocommerce_site):
+		"""
+		Searching for items linked to multiple WooCommerce sites
+		"""
+		for item_data in items_list:
+			item_woo_com_id = cstr(item_data.get("variation_id") or item_data.get("product_id"))
+
+			# Deleted items will have a "0" for variation_id/product_id
+			if item_woo_com_id != "0":
+				woocommerce_product_name = generate_woocommerce_record_name_from_domain_and_id(
+					woocommerce_site, item_woo_com_id
+				)
+				run_item_sync(woocommerce_product_name=woocommerce_product_name)
+
+	def set_items_in_sales_order(self, new_sales_order, wc_order):
+		"""
+		Customised version of set_items_in_sales_order to allow searching for items linked to
+		multiple WooCommerce sites
+		"""
+		wc_server = frappe.get_cached_doc("WooCommerce Server", new_sales_order.woocommerce_server)
+		if not wc_server.warehouse:
+			frappe.throw(_("Please set Warehouse in WooCommerce Server"))
+
+		for item in json.loads(wc_order.line_items):
+			woocomm_item_id = item.get("variation_id") or item.get("product_id")
+
+			# Deleted items will have a "0" for variation_id/product_id
+			if woocomm_item_id == 0:
+				found_item = create_placeholder_item(new_sales_order)
+			else:
+				iws = frappe.qb.DocType("Item WooCommerce Server")
+				itm = frappe.qb.DocType("Item")
+				item_codes = (
+					frappe.qb.from_(iws)
+					.join(itm)
+					.on(iws.parent == itm.name)
+					.where(
+						(iws.woocommerce_id == cstr(woocomm_item_id))
+						& (iws.woocommerce_server == new_sales_order.woocommerce_server)
+						& (itm.disabled == 0)
+					)
+					.select(iws.parent)
+					.limit(1)
+				).run(as_dict=True)
+
+				found_item = frappe.get_doc("Item", item_codes[0].parent) if item_codes else None
+
+			new_sales_order.append(
+				"items",
+				{
+					"item_code": found_item.name,
+					"item_name": found_item.item_name,
+					"description": found_item.item_name,
+					"delivery_date": new_sales_order.delivery_date,
+					"qty": item.get("quantity"),
+					"rate": item.get("price")
+					if wc_server.use_actual_tax_type
+					else get_tax_inc_price_for_woocommerce_line_item(item),
+					"warehouse": wc_server.warehouse,
+					"discount_percentage": 100 if item.get("price") == 0 else 0,
+				},
+			)
+
+			if not wc_server.use_actual_tax_type:
+				new_sales_order.taxes_and_charges = wc_server.sales_taxes_and_charges_template
+
+				# Trigger taxes calculation
+				new_sales_order.set_missing_lead_customer_details()
+			else:
+				ordered_items_tax = item.get("total_tax")
+				if ordered_items_tax:
+					# Get tax details from tax lines
+					tax_lines = json.loads(wc_order.tax_lines)
+					if tax_lines:
+						tax_line = tax_lines[0]
+						tax_id = tax_line.get("rate_id")
+						tax_name = tax_line.get("rate_code")
+						tax_label = tax_line.get("label")
+						
+						# Try to find tax by WooCommerce ID or name first
+						tax_config = frappe.get_all(
+							"WooCommerce Taxes",
+							filters={
+								"parent": wc_server.name,
+								"woocommerce_tax_id": tax_id
+							},
+							fields=["account"]
+						)
+						
+						if not tax_config:
+							tax_config = frappe.get_all(
+								"WooCommerce Taxes",
+								filters={
+									"parent": wc_server.name,
+									"woocommerce_tax_name": tax_name
+								},
+								fields=["account"]
+							)
+						
+						# If still not found, try by country
+						if not tax_config:
+							billing_data = json.loads(wc_order.billing)
+							country_code = billing_data.get("country", "")
+							
+							tax_config = frappe.get_all(
+								"WooCommerce Taxes",
+								filters={
+									"parent": wc_server.name,
+									"country": country_code
+								},
+								fields=["account"]
+							)
+						
+						# Use configured account or default
+						tax_account = tax_config[0].account if tax_config else wc_server.tax_account
+						add_tax_details(new_sales_order, ordered_items_tax, tax_label, tax_account)
+
+			# Gérer la taxe de livraison avec le bon compte de taxe
+			if float(wc_order.shipping_tax) > 0:
+				tax_lines = json.loads(wc_order.tax_lines)
+				if tax_lines:
+					# Prendre la première ligne de taxe car elle contient toutes les taxes
+					tax_line = tax_lines[0]
+					tax_id = tax_line.get("rate_id")
+					tax_name = tax_line.get("rate_code")
+					tax_label = tax_line.get("label")
+					
+					# Try to find tax by WooCommerce ID or name first
+					tax_config = frappe.get_all(
+						"WooCommerce Taxes",
+						filters={
+							"parent": wc_server.name,
+							"woocommerce_tax_id": tax_id
+						},
+						fields=["account"]
+					)
+					
+					if not tax_config:
+						tax_config = frappe.get_all(
+							"WooCommerce Taxes",
+							filters={
+								"parent": wc_server.name,
+								"woocommerce_tax_name": tax_name
+							},
+							fields=["account"]
+						)
+					
+					# If still not found, try by country
+					if not tax_config:
+						billing_data = json.loads(wc_order.billing)
+						country_code = billing_data.get("country", "")
+						
+						tax_config = frappe.get_all(
+							"WooCommerce Taxes",
+							filters={
+								"parent": wc_server.name,
+								"country": country_code
+							},
+							fields=["account"]
+						)
+					
+					# Use configured account or default for shipping tax
+					shipping_tax_account = tax_config[0].account if tax_config else wc_server.tax_account
+					add_tax_details(new_sales_order, float(tax_line.get("shipping_tax_total", 0)), f"Shipping {tax_label}", shipping_tax_account)
+				else:
+					add_tax_details(new_sales_order, float(wc_order.shipping_tax), "Shipping Tax", wc_server.tax_account)
+
+			# Ajouter le montant de la livraison (hors taxe) avec le compte f_n_f
+			add_tax_details(
+				new_sales_order,
+				wc_order.shipping_total,
+				"Shipping Total",
+				wc_server.f_n_f_account,
+			)
+
+		# Handle scenario where Woo Order has no items, then manually set the total
+		if len(new_sales_order.items) == 0:
+			new_sales_order.base_grand_total = float(wc_order.total)
+			new_sales_order.grand_total = float(wc_order.total)
+			new_sales_order.base_rounded_total = float(wc_order.total)
+			new_sales_order.rounded_total = float(wc_order.total)
 
 	def create_or_link_customer_and_address(self, wc_order: WooCommerceOrder) -> str:
 		"""
@@ -539,93 +879,6 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 		create_contact(raw_billing_data, self.customer)
 
 		return customer.name
-
-	def create_missing_items(self, wc_order, items_list, woocommerce_site):
-		"""
-		Searching for items linked to multiple WooCommerce sites
-		"""
-		for item_data in items_list:
-			item_woo_com_id = cstr(item_data.get("variation_id") or item_data.get("product_id"))
-
-			# Deleted items will have a "0" for variation_id/product_id
-			if item_woo_com_id != "0":
-				woocommerce_product_name = generate_woocommerce_record_name_from_domain_and_id(
-					woocommerce_site, item_woo_com_id
-				)
-				run_item_sync(woocommerce_product_name=woocommerce_product_name)
-
-	def set_items_in_sales_order(self, new_sales_order, wc_order):
-		"""
-		Customised version of set_items_in_sales_order to allow searching for items linked to
-		multiple WooCommerce sites
-		"""
-		wc_server = frappe.get_cached_doc("WooCommerce Server", new_sales_order.woocommerce_server)
-		if not wc_server.warehouse:
-			frappe.throw(_("Please set Warehouse in WooCommerce Server"))
-
-		for item in json.loads(wc_order.line_items):
-			woocomm_item_id = item.get("variation_id") or item.get("product_id")
-
-			# Deleted items will have a "0" for variation_id/product_id
-			if woocomm_item_id == 0:
-				found_item = create_placeholder_item(new_sales_order)
-			else:
-				iws = frappe.qb.DocType("Item WooCommerce Server")
-				itm = frappe.qb.DocType("Item")
-				item_codes = (
-					frappe.qb.from_(iws)
-					.join(itm)
-					.on(iws.parent == itm.name)
-					.where(
-						(iws.woocommerce_id == cstr(woocomm_item_id))
-						& (iws.woocommerce_server == new_sales_order.woocommerce_server)
-						& (itm.disabled == 0)
-					)
-					.select(iws.parent)
-					.limit(1)
-				).run(as_dict=True)
-
-				found_item = frappe.get_doc("Item", item_codes[0].parent) if item_codes else None
-
-			new_sales_order.append(
-				"items",
-				{
-					"item_code": found_item.name,
-					"item_name": found_item.item_name,
-					"description": found_item.item_name,
-					"delivery_date": new_sales_order.delivery_date,
-					"qty": item.get("quantity"),
-					"rate": item.get("price")
-					if wc_server.use_actual_tax_type
-					else get_tax_inc_price_for_woocommerce_line_item(item),
-					"warehouse": wc_server.warehouse,
-					"discount_percentage": 100 if item.get("price") == 0 else 0,
-				},
-			)
-
-			if not wc_server.use_actual_tax_type:
-				new_sales_order.taxes_and_charges = wc_server.sales_taxes_and_charges_template
-
-				# Trigger taxes calculation
-				new_sales_order.set_missing_lead_customer_details()
-			else:
-				ordered_items_tax = item.get("total_tax")
-				add_tax_details(new_sales_order, ordered_items_tax, "Ordered Item tax", wc_server.tax_account)
-
-		add_tax_details(new_sales_order, wc_order.shipping_tax, "Shipping Tax", wc_server.f_n_f_account)
-		add_tax_details(
-			new_sales_order,
-			wc_order.shipping_total,
-			"Shipping Total",
-			wc_server.f_n_f_account,
-		)
-
-		# Handle scenario where Woo Order has no items, then manually set the total
-		if len(new_sales_order.items) == 0:
-			new_sales_order.base_grand_total = float(wc_order.total)
-			new_sales_order.grand_total = float(wc_order.total)
-			new_sales_order.base_rounded_total = float(wc_order.total)
-			new_sales_order.rounded_total = float(wc_order.total)
 
 	def create_or_update_address(self, wc_order: WooCommerceOrder):
 		"""
@@ -838,15 +1091,33 @@ def create_contact(data, customer):
 
 
 def add_tax_details(sales_order, price, desc, tax_account_head):
-	sales_order.append(
-		"taxes",
-		{
-			"charge_type": "Actual",
-			"account_head": tax_account_head,
-			"tax_amount": price,
-			"description": desc,
-		},
+	# Rechercher une ligne de taxe existante avec le même compte
+	existing_tax = next(
+		(tax for tax in sales_order.taxes or []
+		 if tax.account_head == tax_account_head and tax.description == desc),
+		None
 	)
+
+	if existing_tax:
+		# Si une ligne avec le même compte existe, ajouter le montant à cette ligne
+		existing_tax.tax_amount = float(price or 0)
+		existing_tax.total = existing_tax.total
+		existing_tax.base_tax_amount = existing_tax.tax_amount
+		existing_tax.base_total = existing_tax.total
+	else:
+		# Si aucune ligne n'existe, en créer une nouvelle
+		tax_row = sales_order.append(
+			"taxes",
+			{
+				"charge_type": "Actual",
+				"account_head": tax_account_head,
+				"tax_amount": float(price or 0),
+				"description": desc,
+			},
+		)
+		# Important : définir le total pour éviter le recalcul
+		tax_row.total = sales_order.grand_total or 0
+		tax_row.base_total = tax_row.total
 
 
 def get_tax_inc_price_for_woocommerce_line_item(line_item: Dict):

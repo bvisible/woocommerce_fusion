@@ -134,6 +134,12 @@ doc_events = {
 		"on_update": "woocommerce_fusion.tasks.sync_items.run_item_sync_from_hook",
 		"after_insert": "woocommerce_fusion.tasks.sync_items.run_item_sync_from_hook",
 	},
+	"File": {
+		"before_insert": "woocommerce_fusion.tasks.sync_items.handle_file_upload",
+		"after_insert": "woocommerce_fusion.tasks.sync_items.run_file_sync_from_hook",
+		"on_update": "woocommerce_fusion.tasks.sync_items.run_file_sync_from_hook",
+		"on_trash": "woocommerce_fusion.tasks.sync_items.run_file_sync_from_hook",
+	},
 }
 
 # Scheduled Tasks

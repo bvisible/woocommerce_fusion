@@ -1,0 +1,80 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-01-03 12:21:52.256550",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "woocommerce_tax_id",
+  "woocommerce_tax_name",
+  "country",
+  "rate",
+  "tax_class",
+  "account"
+ ],
+ "fields": [
+  {
+   "fieldname": "woocommerce_tax_id",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "WooCommerce Tax Id",
+   "reqd": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "woocommerce_tax_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "WooCommerce Tax Name",
+   "reqd": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "country",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Country",
+   "reqd": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "rate",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Rate (%)",
+   "precision": "4",
+   "reqd": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "tax_class",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Tax Class",
+   "default": "standard",
+   "columns": 2
+  },
+  {
+   "fieldname": "account",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Account",
+   "options": "Account",
+   "reqd": 1,
+   "columns": 2
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2025-01-03 12:32:46.014262",
+ "modified_by": "Administrator",
+ "module": "WooCommerce",
+ "name": "WooCommerce Taxes",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
