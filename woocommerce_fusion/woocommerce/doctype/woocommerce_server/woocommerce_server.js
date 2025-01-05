@@ -46,11 +46,6 @@ frappe.ui.form.on('WooCommerce Server', {
 			}
 		});
 
-		// Get shipping methods if sync is enabled
-		if (frm.doc.enable_shipping_methods_sync) {
-			frm.trigger('setup_shipping_methods');
-		}
-
 		// Set the Options for erpnext_field_name field on 'Fields Mapping' child table
 		frappe.call({
 			method: "get_item_docfields",
