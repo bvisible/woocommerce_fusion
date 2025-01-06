@@ -533,7 +533,7 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 
 			tax_account = tax_config[0].account if tax_config else wc_server.tax_account
 			
-			# Ajouter la TVA sur les articles
+			# Add VAT to items
 			if float(tax.get("tax_total", 0)) > 0:
 				add_tax_details(
 					new_sales_order,
@@ -542,7 +542,7 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 					tax_account
 				)
 			
-			# Ajouter la TVA sur les frais d'expédition si présente
+			# Add VAT to shipping costs if applicable
 			if float(tax.get("shipping_tax_total", 0)) > 0:
 				add_tax_details(
 					new_sales_order,
