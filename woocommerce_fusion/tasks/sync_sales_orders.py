@@ -514,61 +514,42 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 		for tax in json.loads(wc_order.tax_lines):
 			tax_config = frappe.get_all(
 				"WooCommerce Taxes",
-				filters={
-					"parent": wc_server.name,
-					"woocommerce_tax_id": tax.get("rate_id")
-				},
+				filters=[
+					["parent", "=", wc_server.name],
+					["woocommerce_tax_id", "=", tax.get("rate_id")]
+				],
 				fields=["account"]
 			)
+
+			if not tax_config:
+				tax_config = frappe.get_all(
+					"WooCommerce Taxes",
+					filters=[
+						["parent", "=", wc_server.name],
+						["woocommerce_tax_name", "=", tax.get("rate_code")]
+					],
+					fields=["account"]
+				)
 
 			tax_account = tax_config[0].account if tax_config else wc_server.tax_account
-			# Use the tax amount from WooCommerce directly
-			add_tax_details(new_sales_order, float(tax.get("tax_total")), tax.get("label"), tax_account)
-
-		# Add shipping taxes
-		tax_lines = json.loads(wc_order.tax_lines)
-		if tax_lines:
-			tax_line = tax_lines[0]
-			tax_id = tax_line.get("rate_id")
-			tax_name = tax_line.get("rate_code")
-			tax_label = tax_line.get("label")
 			
-			tax_config = frappe.get_all(
-				"WooCommerce Taxes",
-				filters={
-					"parent": wc_server.name,
-					"woocommerce_tax_id": tax_id
-				},
-				fields=["account"]
-			)
-			
-			if not tax_config:
-				tax_config = frappe.get_all(
-					"WooCommerce Taxes",
-					filters={
-						"parent": wc_server.name,
-						"woocommerce_tax_name": tax_name
-					},
-					fields=["account"]
+			# Ajouter la TVA sur les articles
+			if float(tax.get("tax_total", 0)) > 0:
+				add_tax_details(
+					new_sales_order,
+					float(tax.get("tax_total")),
+					tax.get("label"),
+					tax_account
 				)
 			
-			# If still not found, try by country
-			if not tax_config:
-				billing_data = json.loads(wc_order.billing)
-				country_code = billing_data.get("country", "")
-				
-				tax_config = frappe.get_all(
-					"WooCommerce Taxes",
-					filters={
-						"parent": wc_server.name,
-						"country": country_code
-					},
-					fields=["account"]
+			# Ajouter la TVA sur les frais d'expédition si présente
+			if float(tax.get("shipping_tax_total", 0)) > 0:
+				add_tax_details(
+					new_sales_order,
+					float(tax.get("shipping_tax_total")),
+					f"Shipping {tax.get('label')}",
+					tax_account
 				)
-			
-			shipping_tax_account = tax_config[0].account if tax_config else wc_server.tax_account
-			# Use the shipping tax amount from WooCommerce directly
-			add_tax_details(new_sales_order, float(tax_line.get("shipping_tax_total", 0)), f"Shipping {tax_label}", shipping_tax_account)
 
 		# Add shipping costs
 		shipping_lines = json.loads(wc_order.shipping_lines)
@@ -577,9 +558,16 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 			add_tax_details(
 				new_sales_order,
 				float(shipping_line.get("total")),
-				f"Shipping Total",
+				"Shipping Total",
 				wc_server.f_n_f_account
 			)
+
+		# Handle scenario where Woo Order has no items, then manually set the total
+		if len(new_sales_order.items) == 0:
+			new_sales_order.base_grand_total = float(wc_order.total)
+			new_sales_order.grand_total = float(wc_order.total)
+			new_sales_order.base_rounded_total = float(wc_order.total)
+			new_sales_order.rounded_total = float(wc_order.total)
 
 		# Flags to ignore certain validations
 		new_sales_order.flags.ignore_mandatory = True
@@ -593,6 +581,20 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 			# Calculate taxes and totals
 			new_sales_order.calculate_taxes_and_totals()
 			new_sales_order.reload()
+
+			# Remove tax lines with zero amount
+			taxes_to_remove = []
+			for i, tax in enumerate(new_sales_order.taxes):
+				if flt(tax.tax_amount, 2) == 0:
+					taxes_to_remove.append(tax)
+			
+			for tax in taxes_to_remove:
+				new_sales_order.remove(tax)
+
+			if taxes_to_remove:
+				new_sales_order.calculate_taxes_and_totals()
+				new_sales_order.save()
+				new_sales_order.reload()
 
 			# Calculate rounding difference after tax calculation
 			total_calculated = flt(new_sales_order.grand_total, 2)
@@ -798,13 +800,6 @@ class SynchroniseSalesOrder(SynchroniseWooCommerce):
 				"Shipping Total",
 				wc_server.f_n_f_account,
 			)
-
-		# Handle scenario where Woo Order has no items, then manually set the total
-		if len(new_sales_order.items) == 0:
-			new_sales_order.base_grand_total = float(wc_order.total)
-			new_sales_order.grand_total = float(wc_order.total)
-			new_sales_order.base_rounded_total = float(wc_order.total)
-			new_sales_order.rounded_total = float(wc_order.total)
 
 	def create_or_link_customer_and_address(self, wc_order: WooCommerceOrder) -> str:
 		"""
